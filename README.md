@@ -100,3 +100,7 @@ On a Windows test account without an existing Calender installation, run the ins
 ~~~
 
 The public site is served by GitHub Pages from **docs** on **main**. Its screenshots use sample entries. Build outputs, dependencies and personal calendars stay outside Git.
+
+## License
+
+Calender is released under the [MIT License](LICENSE). Bundled libraries and the Source Sans 3 font have their own licenses, listed in the [third-party notices](installer/THIRD-PARTY.md).
