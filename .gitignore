@@ -1,0 +1,39 @@
+# Local environments and editor state
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# Generated executables, packaging work, and local verification output
+/build/
+/dist/
+/*.spec
+/artifacts/
+*.log
+
+# Personal calendars, backups, and exports
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.ics
+*.bak
+/data/
+/backups/
+
+# Machine configuration and secrets
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+credentials*.json
+secrets*.json
