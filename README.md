@@ -2,11 +2,15 @@
 
 A local Windows planner for SACs, exams, assignments, deadlines, and custom events. Calender opens to today in your last-used Month or Week view. It runs offline.
 
+[Official Calender page](https://nottbradd.github.io/Calender/) · [Download the Windows installer](https://github.com/nottbradd/Calender/releases/download/v1.2.0/Calender-1.2.0-Setup.exe) · [Release notes and checksums](https://github.com/nottbradd/Calender/releases/tag/v1.2.0)
+
 ![Calender on Windows, showing a month and upcoming assessments with sample entries](docs/calender.png)
 
 ## Run on Windows
 
-Double-click **Calender.exe** to run the standalone app. The build places it in **dist**. You can copy it to another folder. Python, the font, and the icon are included.
+Run **Calender-1.2.0-Setup.exe** on an x64 PC with Windows 10 (1809 or later) or Windows 11. Setup installs for your account, adds **Calender** to Start and offers an optional desktop shortcut. Python and Qt are included. The installer is unsigned.
+
+To update an installed copy, close Calender and run the new installer. To uninstall, open **Settings → Apps → Installed apps**, choose **Calender**, then **Uninstall**. Entries stay in the local database described below.
 
 To run from source, use 64-bit Python 3.14 on Windows and open PowerShell in the project folder.
 
@@ -73,7 +77,7 @@ The app uses Python, PySide6 Essentials (Qt Widgets), and Python’s built-in SQ
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ~~~
 
-Build and launch the standalone Windows executable with these commands.
+Build and launch the portable, single-file Windows executable with these commands.
 
 ~~~powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
@@ -81,4 +85,18 @@ Build and launch the standalone Windows executable with these commands.
 & ".\dist\Calender.exe"
 ~~~
 
-The repository contains source, artwork, dependency pins, and tests. Build outputs go to the ignored build and dist folders.
+To build the per-user installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php). From the same development environment, point the build at your compiler. The release was built with Inno Setup 6.7.3.
+
+~~~powershell
+.\.venv\Scripts\python.exe .\scripts\build_installer.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+~~~
+
+The installer build freezes a fresh directory runtime with replaceable Qt DLLs. It writes **Calender-1.2.0-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
+
+On a Windows test account without an existing Calender installation, run the installer smoke test in PowerShell 7. It creates a disposable calendar, tests both shortcut choices, reopens the saved entry after reinstalling, and checks the database after uninstalling.
+
+~~~powershell
+.\scripts\test_installer.ps1 -Installer .\dist\release\Calender-1.2.0-Setup.exe
+~~~
+
+The public site is served by GitHub Pages from **docs** on **main**. Its screenshots use sample entries. Build outputs, dependencies and personal calendars stay outside Git.

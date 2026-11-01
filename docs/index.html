@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8f7">
+  <meta name="description" content="Calender is an offline Windows planner for school assessments, revision sessions and deadlines. Explore the app and download the Windows installer.">
+  <meta property="og:title" content="Calender · School planner for Windows">
+  <meta property="og:description" content="Plan schoolwork by month or week, with subject colours and local storage.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nottbradd.github.io/Calender/">
+  <meta property="og:image" content="https://nottbradd.github.io/Calender/week.png">
+  <link rel="canonical" href="https://nottbradd.github.io/Calender/">
+  <link rel="icon" href="calendar.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="site.css">
+  <title>Calender · School planner for Windows</title>
+  <script src="preview.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="mast">
+    <a class="wordmark" href="./"><img src="calendar.svg" width="29" height="29" alt="">Calender</a>
+    <nav aria-label="Main navigation">
+      <a href="#install">Installation</a>
+      <a href="https://github.com/nottbradd/Calender">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="app-title">
+      <div class="intro">
+        <p class="eyebrow"><span class="mark" aria-hidden="true"></span>School planner for Windows</p>
+        <h1 id="app-title">Calender</h1>
+        <p class="lead">See when assessments are due and where revision fits. Plan by month or by week, with a colour for each subject.</p>
+        <a class="download" href="https://github.com/nottbradd/Calender/releases/download/v1.2.0/Calender-1.2.0-Setup.exe">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>
+          Download for Windows
+        </a>
+        <p class="release-meta">Version 1.2.0 <span>·</span> x64 <span>·</span> <a href="https://github.com/nottbradd/Calender/releases/tag/v1.2.0">Release notes</a></p>
+      </div>
+
+      <figure class="preview" aria-label="Screenshots of Calender using sample entries">
+        <div class="preview-top">
+          <span class="preview-label">App preview</span>
+          <div class="view-options" role="group" aria-label="Choose a screenshot" hidden>
+            <button type="button" data-view="week" aria-pressed="true">Week</button>
+            <button type="button" data-view="month" aria-pressed="false">Month</button>
+            <button type="button" data-view="subjects" aria-pressed="false">Subjects</button>
+          </div>
+        </div>
+        <div class="stage">
+          <a href="week.png" id="image-link" aria-label="Open full-size week screenshot">
+            <img id="app-screen" src="week.png" width="1282" height="767" alt="Calender's weekly timeline with a 10:15–11:45 lab, overlapping workshops and the upcoming list.">
+          </a>
+        </div>
+        <figcaption>
+          <span id="caption" aria-live="polite">Week view · Timed entries and all-day work.</span>
+          <a id="full-size" href="week.png">Full size <span aria-hidden="true">↗</span></a>
+        </figcaption>
+        <noscript><p><a href="calender.png">Month screenshot</a> · <a href="settings.png">Subjects screenshot</a></p></noscript>
+      </figure>
+    </section>
+
+    <section class="install" id="install" aria-labelledby="install-title">
+      <div class="install-intro">
+        <h2 id="install-title">Install Calender</h2>
+        <p>For x64 PCs running Windows 10 (1809 or later) or Windows 11. Setup includes Python, Qt and the app font.</p>
+      </div>
+      <ol class="steps">
+        <li><div><h3>Run the installer</h3><p>Open <strong>Calender-1.2.0-Setup.exe</strong>. It installs for your Windows account without administrator access. The installer is unsigned. A <a href="https://github.com/nottbradd/Calender/releases/download/v1.2.0/SHA256SUMS.txt">SHA-256 checksum</a> is available with the release.</p></div></li>
+        <li><div><h3>Open Calender from Start</h3><p>Setup adds a Start menu shortcut and offers a desktop shortcut. Choose <strong>Add entry</strong> to plan your first assessment.</p></div></li>
+        <li><div><h3>Keep your calendar on your PC</h3><p>Calender works offline. Entries are kept separately from the app, so they survive updates and uninstallation.</p>
+          <details><summary>Where is my calendar saved?</summary><p>Close Calender and copy <code>%LOCALAPPDATA%\SchoolCalendar\calendar.sqlite3</code> to back up your entries, subjects and view preference.</p></details>
+        </div></li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>
+    <span>Calender <span class="divider">/</span> nottbradd</span>
+    <div><a href="https://github.com/nottbradd/Calender#plan-your-work">User guide</a><a href="https://github.com/nottbradd/Calender/issues">Report an issue</a></div>
+  </footer>
+</body>
+</html>

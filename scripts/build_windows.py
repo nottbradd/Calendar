@@ -1,4 +1,5 @@
-"""Build a windowed, single-file Windows executable from the checked-in sources."""
+"""Build the portable executable or the installer's unpacked Windows runtime."""
+import argparse
 from io import BytesIO
 from pathlib import Path
 import os
@@ -62,6 +63,9 @@ def windows_version(target: Path) -> None:
 if __name__ == "__main__":
     if sys.platform != "win32":
         raise SystemExit("Run this build on Windows.")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--installer-runtime", action="store_true", help="Leave the Qt libraries beside the installed app.")
+    options = parser.parse_args()
     # Qt links against Windows' ICU. An unrelated tool's ICU on PATH can
     # satisfy the filename search at build time but lack the required exports.
     windows = Path(os.environ["SystemRoot"])
@@ -76,9 +80,11 @@ if __name__ == "__main__":
     windows_icon(ico)
     version_file = BUILD / "windows-version.txt"
     windows_version(version_file)
+    work = BUILD / ("installer-runtime" if options.installer_runtime else "pyinstaller")
+    destination = ROOT / "dist" / "installer-runtime" if options.installer_runtime else ROOT / "dist"
     PyInstaller.__main__.run([
-        "--noconfirm", "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
+        "--noconfirm", "--onedir" if options.installer_runtime else "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
         "--icon", str(ico), "--version-file", str(version_file), "--add-data", f"{ASSETS}:school_calendar/assets",
-        "--specpath", str(BUILD), "--workpath", str(BUILD / "pyinstaller"), "--distpath", str(ROOT / "dist"),
+        "--specpath", str(BUILD), "--workpath", str(work), "--distpath", str(destination),
         str(ROOT / "launch.pyw"),
     ])

@@ -9,3 +9,5 @@
 *.png binary
 # Preserve the font licence exactly as distributed by Adobe.
 school_calendar/assets/fonts/LICENSE.md -text -whitespace
+# Bundled upstream notices contain Markdown heading underlines of seven equals signs.
+installer/licenses/*.txt -text -whitespace conflict-marker-size=80
