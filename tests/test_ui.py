@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from school_calendar.agenda import EntryRow
 from school_calendar.appearance import apply_theme
 from school_calendar.dialogs import DayDetails, EntryDetails, EntryEditor
-from school_calendar.model import Entry, countdown, parse_day
+from school_calendar.model import Entry, SUBJECT_COLOURS, countdown, parse_day
 from school_calendar.month_view import chip_layout
 from school_calendar.storage import Store
 from school_calendar.window import CalendarWindow
@@ -257,3 +257,197 @@ class CalendarInterfaceTests(unittest.TestCase):
         self.settle()
         self.assertIsInstance(self.win.dialog, EntryDetails)
         self.assertEqual(self.win.dialog.entry.type_label, "Revision session")
+
+    def test_subjects_and_ranges_in_create_and_edit_forms_survive_restart(self):
+        self.store.save(Entry("Previously saved", self.today, "History", at=time(9)))
+        self.win.reload()
+        self.click(self.win.settings_button)
+        settings = self.win.dialog
+        self.assertEqual(settings.subjects.item(0).text(), "History")
+        for name, message in ((" ", "Enter a subject"), (" HISTORY ", "already")):
+            self.type_text(settings.name_input, name)
+            self.click(settings.add_button)
+            self.assertIn(message, settings.error.text())
+            self.assertEqual(settings.name_input.text(), name)
+        self.type_text(settings.name_input, "  Visual Arts ")
+        self.click(settings.swatches[4])
+        self.key(settings.name_input, Qt.Key.Key_Return)
+        self.assertFalse(settings.error.isVisible())
+        self.assertEqual(settings.subjects.count(), 2)
+        self.assertEqual(self.win.snapshot.colours["Visual Arts"], SUBJECT_COLOURS[4])
+        self.click(settings.done_button)
+        self.click(self.win.add_button)
+        editor = self.win.dialog
+        self.assertEqual(editor.subject_input.findText("Visual Arts"), 1)
+        editor.subject_input.showPopup()
+        choices = editor.subject_input.view()
+        self.assertTrue(choices.isVisible())
+        choice = choices.model().index(1, 0)
+        QTest.mouseClick(choices.viewport(), Qt.MouseButton.LeftButton, pos=choices.visualRect(choice).center())
+        self.settle()
+        self.assertEqual(editor.subject_input.currentText(), "Visual Arts")
+        self.type_text(editor.title_input, "Colour study")
+        self.type_text(editor.notes_input, "Bring folio")
+        self.type_text(editor.end_input, "11:45")
+        self.click(editor.save_button)
+        self.assertIn("start time", editor.error.text())
+        self.assertEqual(editor.end_input.text(), "11:45")
+        self.type_text(editor.time_input, "10:15")
+        for value, message in (("10:15", "later"), ("09:00", "same date"), ("25:00", "24-hour")):
+            self.type_text(editor.end_input, value)
+            self.click(editor.save_button)
+            self.assertIn(message, editor.error.text())
+            self.assertEqual((editor.time_input.text(), editor.end_input.text(), editor.notes_input.toPlainText()),
+                             ("10:15", value, "Bring folio"))
+        self.type_text(editor.end_input, "11:45")
+        self.click(editor.save_button)
+        self.assertIn("10:15–11:45", [w.text() for w in self.open_row("Colour study").findChildren(QLabel)])
+        self.click(self.win.dialog.edit_button)
+        self.assertEqual(self.win.dialog.subject_input.currentText(), "Visual Arts")
+        self.assertEqual(self.win.dialog.end_input.text(), "11:45")
+        self.click(self.win.dialog.cancel_button)
+        old = self.open_row("Previously saved")
+        self.assertIn("09:00 · No end time", [w.text() for w in old.findChildren(QLabel)])
+        self.click(old.edit_button)
+        self.assertEqual(self.win.dialog.subject_input.findText("Visual Arts"), 1)
+        self.assertEqual(self.win.dialog.end_input.text(), "")
+        self.click(self.win.dialog.cancel_button)
+        self.click(self.win.week_button)
+        expected = self.store.read()
+        self.close_app()
+        self.open_app()
+        self.assertEqual(self.win.snapshot, expected)
+        self.assertTrue(self.win.week.isVisible())
+        self.assertTrue(self.win.week_button.isChecked())
+        self.assertEqual(self.win.week.headings[self.today.weekday()].property("today"), True)
+
+    def test_week_minutes_overlaps_short_and_out_of_hours_are_selectable(self):
+        w = self.win.week
+        day = self.today
+        data = (("Lab", time(10,15), time(11,45)), ("Overlap", time(10,30), time(11,15)),
+                ("Start only", time(10,30), None), ("Short", time(11,45), time(11,46)),
+                ("Midnight", time(0), time(1)), ("Last minute", time(23,59), None))
+        for title, start, end in data:
+            self.store.save(Entry(title, day, "Science", at=start, end_at=end))
+        for i in range(4):
+            self.store.save(Entry(f"All day {i}", day))
+        self.win.reload()
+        self.click(self.win.week_button)
+        widgets = {b.entry.title: b for b in w.timed[day.weekday()]}
+        lab = widgets["Lab"]
+        self.assertLessEqual(abs(lab.y() - w.y(600) - w.hour_height / 4), 1)
+        self.assertLessEqual(abs(lab.duration_height - 1.5 * w.hour_height), 1)
+        self.assertEqual(lab.height(), lab.duration_height)
+        self.assertLessEqual(abs(w.scroll.verticalScrollBar().value() - 9 * w.hour_height), 1)
+        self.assertEqual(widgets["Start only"].duration_height, 0)
+        self.assertLessEqual(widgets["Short"].duration_height, 1)
+        self.assertGreaterEqual(widgets["Short"].height(), 22)
+        for other, another in (("Lab","Overlap"), ("Overlap","Start only"), ("Lab","Start only")):
+            self.assertFalse(widgets[other].geometry().intersects(widgets[another].geometry()))
+        for title, widget in widgets.items():
+            w.scroll.ensureWidgetVisible(widget, 5, 5)
+            self.settle()
+            self.assertIs(w.canvas.childAt(widget.geometry().center()), widget)
+            self.assertTrue(w.scroll.viewport().rect().contains(widget.mapTo(w.scroll.viewport(), widget.rect().center())))
+            self.click(widget)
+            self.assertEqual(self.win.dialog.entry.title, title)
+            self.key(self.win.dialog, Qt.Key.Key_Escape)
+        self.assertEqual(w.all_day[day.weekday()][0].parentWidget(), w.header)
+        self.click(w.more[day.weekday()])
+        self.assertEqual(len(self.win.dialog.rows.widget().findChildren(EntryRow)), len(data) + 4)
+        self.key(self.win.dialog, Qt.Key.Key_Escape)
+        self.click(w.all_day[day.weekday()][0])
+        self.assertIsNone(self.win.dialog.entry.at)
+        self.key(self.win.dialog, Qt.Key.Key_Escape)
+
+    def test_week_navigation_slot_creation_and_updates_in_both_views(self):
+        day = self.today + timedelta(days=1)
+        self.win.select(day)
+        self.click(self.win.week_button)
+        w = self.win.week
+        self.assertEqual((w.days[0].weekday(), w.days[-1].weekday(), self.win.selected), (0, 6, day))
+        self.click(self.win.following)
+        self.assertEqual(self.win.selected, day + timedelta(days=7))
+        self.click(self.win.previous)
+        self.assertEqual(self.win.selected, day)
+        self.click(self.win.month_button)
+        self.assertEqual(self.win.selected, day)
+        self.click(self.win.following)
+        self.assertEqual(self.win.selected.month, 12)
+        self.click(self.win.week_button)
+        self.click(self.win.today_button)
+        self.assertEqual(self.win.selected, self.today)
+        i = day.weekday()
+        self.click(w.headings[i])
+        self.assertEqual(parse_day(self.win.dialog.date_input.text.text()), day)
+        self.assertEqual(self.win.dialog.time_input.text(), "")
+        self.click(self.win.dialog.cancel_button)
+        x = (w.edges[i] + w.edges[i + 1]) // 2
+        QTest.mouseClick(w.canvas, Qt.MouseButton.LeftButton, pos=QPoint(x, w.y(14 * 60 + 45)))
+        self.settle()
+        editor = self.win.dialog
+        self.assertEqual((parse_day(editor.date_input.text.text()), editor.time_input.text(), editor.end_input.text()),
+                         (day, "14:45", ""))
+        self.type_text(editor.title_input, "Slot entry")
+        self.type_text(editor.end_input, "16:00")
+        self.click(editor.save_button)
+        self.click(w.timed[i][0])
+        self.click(self.win.dialog.edit_button)
+        self.type_text(self.win.dialog.title_input, "Changed")
+        self.type_text(self.win.dialog.end_input, "16:30")
+        self.click(self.win.dialog.save_button)
+        item = w.timed[i][0].entry
+        self.assertEqual((item.title, item.end_at), ("Changed", time(16,30)))
+        self.assertEqual(self.win.grid.month_model.by_day[day], [item])
+        self.click(w.timed[i][0])
+        self.click(self.win.dialog.complete_button)
+        self.assertTrue(w.timed[i][0].entry.completed)
+        self.assertTrue(self.win.grid.month_model.by_day[day][0].completed)
+        self.win.resize(800, 540)
+        self.settle()
+        self.assertEqual(self.win.width(), 800)
+        self.assertFalse(self.win.agenda_panel.isVisible())
+        self.assertEqual(w.scroll.horizontalScrollBar().maximum(), 0)
+        self.click(self.win.agenda_toggle)
+        self.assertTrue(self.win.agenda_panel.isVisible())
+        self.click(self.win.completed_button)
+        self.click(self.open_row("Changed").complete_button)
+        self.assertFalse(w.timed[i][0].entry.completed)
+        self.click(w.timed[i][0])
+        self.click(self.win.dialog.delete_button)
+        self.click(self.win.dialog.confirm_delete)
+        self.assertEqual(w.timed[i], [])
+        self.click(self.win.month_button)
+        self.assertFalse(self.win.grid.month_model.by_day.get(day))
+
+    def test_busy_week_scrolls_with_its_dates_at_minimum_size(self):
+        sunday = date(2027, 1, 3)
+        for i in range(8):
+            self.store.save(Entry(f"Session {i}", sunday, at=time(14), end_at=time(15)))
+        self.win.reload()
+        self.win.resize(760, 516)
+        self.win.select(date(2026, 12, 31))
+        self.click(self.win.week_button)
+        w = self.win.week
+        self.assertEqual((w.days[0], w.days[6]), (date(2026, 12, 28), sunday))
+        self.assertEqual(self.win.size().toTuple(), (760, 516))
+        bar = w.scroll.horizontalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        axis_position = w.axis.mapToGlobal(QPoint(0, 0))
+        bar.setValue(bar.maximum())
+        self.assertEqual(w.header.x(), -bar.value())
+        self.assertEqual(w.axis.mapToGlobal(QPoint(0, 0)), axis_position)
+        last = w.timed[6][-1]
+        w.scroll.ensureWidgetVisible(last, 2, 2)
+        self.settle()
+        self.assertTrue(w.scroll.viewport().rect().contains(last.mapTo(w.scroll.viewport(), last.rect().center())))
+        self.assertIs(w.canvas.childAt(last.geometry().center()), last)
+        last.setFocus()
+        self.key(last, Qt.Key.Key_Return)
+        self.assertEqual(self.win.dialog.entry.title, "Session 7")
+        self.key(self.win.dialog, Qt.Key.Key_Escape)
+        self.win.select(date.min)
+        self.assertFalse(self.win.previous.isEnabled())
+        self.win.select(date.max)
+        self.assertFalse(self.win.following.isEnabled())
+        self.assertFalse(w.headings[-1].isEnabled())

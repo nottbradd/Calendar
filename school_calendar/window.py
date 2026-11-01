@@ -4,9 +4,7 @@ from datetime import date
 
 from PySide6.QtCore import QEvent, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
-from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QHBoxLayout, QMainWindow, QVBoxLayout,
-)
+from PySide6.QtWidgets import QApplication, QButtonGroup, QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout
 
 from . import APP_NAME
 from .agenda import EntryList
@@ -14,7 +12,9 @@ from .appearance import Backdrop, button, glass_panel, label, motion_enabled
 from .dialogs import DayDetails, EntryDetails, EntryEditor
 from .model import Entry, NEUTRAL_COLOUR, shift_month
 from .month_view import MonthView
+from .settings import SettingsDialog
 from .storage import Store, StoreError
+from .week_view import WeekView, week_days, week_title
 from .windows import enable_system_frost
 
 
@@ -26,6 +26,7 @@ class CalendarWindow(QMainWindow):
         self.today = self.selected = clock()
         self.dialog = None
         self.show_completed = False
+        self.compact_agenda_open = False
         self._closing = False
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(760, 516)
@@ -45,13 +46,18 @@ class CalendarWindow(QMainWindow):
         panels = QHBoxLayout()
         panels.setSpacing(10)
         panels.addWidget(self._calendar_panel(), 7)
-        panels.addWidget(self._agenda_panel(), 3)
+        self.agenda_panel = self._agenda_panel()
+        panels.addWidget(self.agenda_panel, 3)
         outer.addLayout(panels, 1)
         self.select(self.selected)
         self.render_agenda()
-        self.grid.setFocus(Qt.FocusReason.OtherFocusReason)
+        if self.snapshot.view == "month":
+            self.grid.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.week.headings[self.selected.weekday()].setFocus(Qt.FocusReason.OtherFocusReason)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.open_editor(self.selected))
         QShortcut(QKeySequence("Ctrl+T"), self, activated=self.go_today)
+        QShortcut(QKeySequence("Ctrl+,"), self, activated=self.open_settings)
         QShortcut(QKeySequence("Alt+Left"), self, activated=lambda: self.navigate(-1))
         QShortcut(QKeySequence("Alt+Right"), self, activated=lambda: self.navigate(1))
         self.day_timer = QTimer(self, timeout=self.check_day)
@@ -68,19 +74,38 @@ class CalendarWindow(QMainWindow):
         self.today_button = button("Today")
         self.previous.setFixedWidth(29)
         self.following.setFixedWidth(29)
-        for control, name in ((self.previous, "Previous month"), (self.following, "Next month")):
-            control.setAccessibleName(name)
-            control.setToolTip(name)
         self.today_button.setToolTip("Go to today (Ctrl+T)")
         self.previous.clicked.connect(lambda: self.navigate(-1))
         self.today_button.clicked.connect(self.go_today)
         self.following.clicked.connect(lambda: self.navigate(1))
         for action in (self.previous, self.today_button, self.following):
             top.addWidget(action)
+        top.addSpacing(6)
+        switch = QFrame()
+        switch.setObjectName("viewSwitch")
+        switches = QHBoxLayout(switch)
+        switches.setContentsMargins(2, 2, 2, 2)
+        switches.setSpacing(1)
+        self.views = QButtonGroup(self)
+        self.month_button = button("Month", "segment")
+        self.week_button = button("Week", "segment")
+        for tab in (self.month_button, self.week_button):
+            tab.setCheckable(True)
+            tab.setAccessibleName(tab.text() + " view")
+            self.views.addButton(tab)
+            switches.addWidget(tab)
+        self.month_button.clicked.connect(lambda: self.switch_view("month"))
+        self.week_button.clicked.connect(lambda: self.switch_view("week"))
+        top.addWidget(switch)
         top.addStretch()
         self.today_text = label("", "muted")
         top.addWidget(self.today_text)
         top.addSpacing(6)
+        self.settings_button = button("Settings", "", "settings")
+        self.settings_button.setAccessibleName("Settings")
+        self.settings_button.setToolTip("Settings (Ctrl+,)")
+        self.settings_button.clicked.connect(self.open_settings)
+        top.addWidget(self.settings_button)
         self.add_button = button("Add entry", "primary", "plus")
         self.add_button.setToolTip("Add an entry for the selected day (Ctrl+N)")
         self.add_button.clicked.connect(lambda: self.open_editor(self.selected))
@@ -97,11 +122,25 @@ class CalendarWindow(QMainWindow):
         self.grid.add.connect(self.open_editor)
         self.grid.details.connect(self.open_details)
         self.grid.show_day.connect(self.open_day)
-        body.addWidget(self.grid, 1)
+        self.week = WeekView()
+        self.week.add.connect(self.open_slot)
+        self.week.details.connect(self.open_details)
+        self.week.show_day.connect(self.open_day)
+        self.calendar_views = QStackedWidget()
+        self.calendar_views.addWidget(self.grid)
+        self.calendar_views.addWidget(self.week)
+        body.addWidget(self.calendar_views, 1)
         footer = QHBoxLayout()
         self.selected_text = label("", "muted")
         footer.addWidget(self.selected_text)
         footer.addStretch()
+        self.week_key = label("○  Start only", "caption")
+        self.week_key.setToolTip("A hollow marker is an entry with a start time and no end time.")
+        footer.addWidget(self.week_key)
+        footer.addSpacing(4)
+        self.agenda_toggle = button("Show agenda", "link", "agenda")
+        self.agenda_toggle.clicked.connect(self.toggle_compact_agenda)
+        footer.addWidget(self.agenda_toggle)
         self.day_button = button("View day", "link")
         self.day_button.clicked.connect(lambda: self.open_day(self.selected))
         footer.addWidget(self.day_button)
@@ -138,22 +177,73 @@ class CalendarWindow(QMainWindow):
         self.agenda.open_entry.connect(self.open_details)
         body.addWidget(self.agenda, 1)
         self.count_pulse = QVariantAnimation(self, duration=160)
-        self.count_pulse.setStartValue(QColor("#BDD4D8"))
-        self.count_pulse.setEndValue(QColor("#E3EBEC"))
-        self.count_pulse.valueChanged.connect(lambda c: self.count.setStyleSheet(f"background:{c.name()};"))
+        self.count_pulse.setStartValue(QColor(157, 189, 196, 150))
+        self.count_pulse.setEndValue(QColor(180, 201, 207, 68))
+        self.count_pulse.valueChanged.connect(lambda c: self.count.setStyleSheet(f"background:rgba{c.getRgb()};"))
         return panel
 
     def select(self, day):
         self.selected = day
+        weekly = self.snapshot.view == "week"
         self.grid.display(day, self.today, self.snapshot)
-        self.month_label.setText(f"{day:%B} {day.year}")
-        self.today_text.setText(f"{self.today:%A}, {self.today.day} {self.today:%B}")
+        self.calendar_views.setCurrentWidget(self.week if weekly else self.grid)
+        (self.week_button if weekly else self.month_button).setChecked(True)
+        self.week_key.setVisible(weekly)
+        if weekly:
+            self.week.display(day, self.today, self.snapshot)
+        self.month_label.setText(week_title(day) if weekly else f"{day:%B} {day.year}")
+        self._toolbar_size()
         self.selected_text.setText(f"Selected  ·  {day:%a}, {day.day} {day:%b}")
-        self.previous.setEnabled((day.year, day.month) > (1, 1))
-        self.following.setEnabled((day.year, day.month) < (9999, 12))
+        if weekly:
+            days = week_days(day)
+            self.previous.setEnabled(date.min not in days)
+            self.following.setEnabled(date.max not in days)
+        else:
+            self.previous.setEnabled((day.year, day.month) > (1, 1))
+            self.following.setEnabled((day.year, day.month) < (9999, 12))
+        for control, action in ((self.previous, "Previous"), (self.following, "Next")):
+            name = f"{action} {self.snapshot.view}"
+            control.setAccessibleName(name)
+            control.setToolTip(name)
+
+    def _toolbar_size(self):
+        compact = self.width() < 960
+        self.settings_button.setText("" if compact else "Settings")
+        day = self.today
+        self.today_text.setText(f"{day:%a}, {day.day} {day:%b}" if compact else f"{day:%A}, {day.day} {day:%B}")
+        if hasattr(self, "agenda_panel"):
+            compact_week = self.width() < 1000 and self.snapshot.view == "week"
+            self.agenda_toggle.setVisible(compact_week)
+            self.agenda_toggle.setText("Hide agenda" if self.compact_agenda_open else "Show agenda")
+            self.agenda_panel.setVisible(not compact_week or self.compact_agenda_open)
+
+    def toggle_compact_agenda(self):
+        self.compact_agenda_open = not self.compact_agenda_open
+        self._toolbar_size()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "settings_button"):
+            self._toolbar_size()
+
+    def switch_view(self, view):
+        if view == self.snapshot.view:
+            return
+        try:
+            self.store.set_view(view)
+        except StoreError as exc:
+            self.read_error.setText(str(exc))
+            self.read_error.show()
+            self.select(self.selected)
+            return
+        self.reload()
 
     def navigate(self, delta):
-        self.select(shift_month(self.selected, delta))
+        if self.snapshot.view == "week":
+            ordinal = min(date.max.toordinal(), max(1, self.selected.toordinal() + delta * 7))
+            self.select(date.fromordinal(ordinal))
+        else:
+            self.select(shift_month(self.selected, delta))
 
     def go_today(self):
         self.check_day()
@@ -212,6 +302,15 @@ class CalendarWindow(QMainWindow):
         editor.saved.connect(self.select)
         self._present(editor)
 
+    def open_slot(self, day, at):
+        self.select(day)
+        self.open_editor(day, Entry("", day, at=at))
+
+    def open_settings(self):
+        dialog = SettingsDialog(self, self.store, self.snapshot.colours)
+        dialog.subjects_changed.connect(self.reload)
+        self._present(dialog)
+
     def open_details(self, entry):
         self.select(entry.day)
         details = EntryDetails(self, self.store, entry, self.snapshot.colours.get(entry.subject, NEUTRAL_COLOUR), self.today)
@@ -225,6 +324,7 @@ class CalendarWindow(QMainWindow):
             self.count_pulse.start()
 
     def open_day(self, day):
+        self.select(day)
         view = DayDetails(self, day, self.today, self.snapshot)
         view.add.connect(self.open_editor)
         view.details.connect(self.open_details)

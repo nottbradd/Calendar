@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QDir, QEasingCurve, QPropertyAnimation, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QLinearGradient, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QPushButton, QWidget
 
@@ -27,6 +27,7 @@ PATHS = {
     "reopen": "M5 4v6h6M5 10a8 8 0 1 1-.2 6",
     "clock": "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 6v6l4 2",
     "close": "m6 6 12 12M18 6 6 18",
+    "settings": "M4 7h5m4 0h7M4 17h9m4 0h3M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0z",
 }
 
 
@@ -60,6 +61,31 @@ def label(text: str, role: str = "") -> QLabel:
     return item
 
 
+@lru_cache(maxsize=64)
+def subject_icon(colour: str, size=14) -> QIcon:
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setWindow(0, 0, 28, 28)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(colour))
+    painter.drawEllipse(3, 3, 22, 22)
+    painter.end()
+    pixmap.setDevicePixelRatio(2)
+    result = QIcon(pixmap)
+    checked = pixmap.copy()
+    painter = QPainter(checked)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.scale(size / 28, size / 28)
+    painter.setPen(QPen(QColor("white"), 2))
+    painter.drawLine(8, 14, 12, 18)
+    painter.drawLine(12, 18, 21, 9)
+    painter.end()
+    result.addPixmap(checked, QIcon.Mode.Normal, QIcon.State.On)
+    return result
+
+
 def button(text: str, role: str = "", glyph: str = "") -> QPushButton:
     item = QPushButton(text)
     item.setProperty("role", role)
@@ -85,9 +111,9 @@ def paint_frost(widget: QWidget, native: bool) -> None:
     painter = QPainter(widget)
     rect = QRectF(widget.rect())
     wash = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    wash.setColorAt(0, QColor(216, 232, 236, 148 if native else 255))
-    wash.setColorAt(.50, QColor(236, 239, 244, 155 if native else 255))
-    wash.setColorAt(1, QColor(236, 225, 220, 142 if native else 255))
+    wash.setColorAt(0, QColor(209, 231, 233, 112 if native else 255))
+    wash.setColorAt(.50, QColor(233, 239, 244, 124 if native else 255))
+    wash.setColorAt(1, QColor(234, 218, 211, 111 if native else 255))
     # Replace the backing pixels on every repaint so the tint does not build up.
     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
     painter.fillRect(rect, wash)

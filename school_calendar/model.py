@@ -12,6 +12,7 @@ SUBJECT_COLOURS = (
     "#376BB4", "#377D70", "#946044", "#8463A6",
     "#A75476", "#717337", "#3F8196", "#756391",
 )
+COLOUR_NAMES = ("Blue", "Teal", "Clay", "Violet", "Rose", "Olive", "Sea", "Plum")
 NEUTRAL_COLOUR = "#65758B"
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
@@ -28,6 +29,7 @@ class Entry:
     completed: bool = False
     id: str = field(default_factory=lambda: uuid4().hex)
     revision: int = 0
+    end_at: time | None = None
 
     @property
     def type_label(self) -> str:
@@ -35,7 +37,15 @@ class Entry:
 
     @property
     def time_label(self) -> str:
-        return self.at.strftime("%H:%M") if self.at is not None else "All day"
+        if self.at is None:
+            return "All day"
+        return f"{self.at:%H:%M}–{self.end_at:%H:%M}" if self.end_at else f"{self.at:%H:%M}"
+
+    @property
+    def time_description(self) -> str:
+        if self.at is not None and self.end_at is None:
+            return f"{self.time_label} · No end time"
+        return self.time_label
 
     def cleaned(self) -> Entry:
         if not self.title.strip():
@@ -44,8 +54,7 @@ class Entry:
             raise ValueError("Choose a valid calendar date.")
         if self.kind not in KINDS:
             raise ValueError("Choose an entry type.")
-        if self.at is not None and (self.at.tzinfo is not None or self.at.second or self.at.microsecond):
-            raise ValueError("Use a local time in hours and minutes.")
+        validate_times(self.at, self.end_at)
         return replace(
             self, title=self.title.strip(), subject=" ".join(self.subject.split()),
             notes=self.notes.strip(), custom_kind=self.custom_kind.strip() if self.kind == "Custom" else "",
@@ -78,12 +87,22 @@ def parse_day(text: str) -> date:
     raise ValueError("Enter a valid date in DD/MM/YYYY format.")
 
 
+def validate_times(start: time | None, end: time | None) -> None:
+    for value in (start, end):
+        if value is not None and (value.tzinfo is not None or value.second or value.microsecond):
+            raise ValueError("Use a local time in hours and minutes.")
+    if end is not None and start is None:
+        raise ValueError("Enter a start time before adding an end time.")
+    if end is not None and end <= start:
+        raise ValueError("End time must be later than the start time on the same date.")
+
+
 def parse_time(text: str) -> time | None:
     text = text.strip()
     if not text:
         return None
     if not re.fullmatch(r"(?:[01]?\d|2[0-3]):[0-5]\d", text):
-        raise ValueError("Use a 24-hour time such as 14:30, or leave it blank for all day.")
+        raise ValueError("Use a 24-hour time such as 14:30, or leave this field blank.")
     hours, minutes = text.split(":")
     return time(int(hours), int(minutes))
 

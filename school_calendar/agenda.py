@@ -18,7 +18,7 @@ class EntryRow(QAbstractButton):
         super().__init__()
         self.entry = entry
         self.colour = colour
-        description = f"{entry.title} · {entry.subject or 'No subject'} · {entry.type_label} · {full_day(entry.day)} · {entry.time_label} · {countdown(entry, today)}"
+        description = f"{entry.title} · {entry.subject or 'No subject'} · {entry.type_label} · {full_day(entry.day)} · {entry.time_description} · {countdown(entry, today)}"
         self.setAccessibleName(description)
         self.setToolTip(description)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -51,7 +51,8 @@ class EntryRow(QAbstractButton):
         painter.drawText(title_box, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, title_box.width()))
         painter.setFont(font(14))
         painter.setPen(QColor(MUTED))
-        time_box = QRect(self.width() - 52, 24, 47, 19)
+        time_width = painter.fontMetrics().horizontalAdvance(self.entry.time_label) + 2
+        time_box = QRect(self.width() - time_width - 5, 27, time_width, 19)
         painter.drawText(time_box, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, self.entry.time_label)
         meta_box = QRect(text_left, 28, max(1, time_box.x() - text_left - 5), 19)
         meta = " · ".join(filter(None, (self.entry.subject, self.entry.type_label)))
@@ -60,8 +61,8 @@ class EntryRow(QAbstractButton):
 
 def status_badge(text: str, tone: str) -> QLabel:
     colours = {
-        "overdue": ("#80432F", "#F5E5DD"), "today": ("#2F5760", "#DAE9E9"),
-        "done": ("#355C51", "#DEEAE4"), "later": (MUTED, "transparent"),
+        "overdue": ("#80432F", "rgba(223,179,157,65)"), "today": ("#2F5760", "rgba(153,195,196,65)"),
+        "done": ("#355C51", "rgba(163,198,174,65)"), "later": (MUTED, "transparent"),
     }
     fg, bg = colours[tone]
     badge = label(text)

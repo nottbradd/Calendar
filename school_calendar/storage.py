@@ -13,7 +13,7 @@ from .model import Entry, SUBJECT_COLOURS, order_key
 
 
 APPLICATION_ID = 0x5343414C  # SCAL
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class StoreError(Exception):
@@ -24,6 +24,7 @@ class StoreError(Exception):
 class Snapshot:
     entries: tuple[Entry, ...]
     colours: dict[str, str]
+    view: str = "month"
 
 
 def database_path() -> Path:
@@ -43,10 +44,6 @@ class Store:
                 db.row_factory = sqlite3.Row
                 db.execute("PRAGMA foreign_keys = ON")
                 self._open_schema(existed)
-                if db.execute("PRAGMA quick_check(1)").fetchone()[0] != "ok":
-                    raise StoreError("The calendar database did not pass its integrity check.")
-                if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                    raise StoreError("The calendar contains a broken subject reference.")
             except BaseException:
                 db.close()
                 raise
@@ -58,7 +55,16 @@ class Store:
             self.db.execute("BEGIN IMMEDIATE")
             app_id = self.db.execute("PRAGMA application_id").fetchone()[0]
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
+            if self.db.execute("PRAGMA quick_check(1)").fetchone()[0] != "ok":
+                raise StoreError("The calendar database did not pass its integrity check.")
+            if self.db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise StoreError("The calendar contains a broken subject reference.")
             if (app_id, version) == (APPLICATION_ID, SCHEMA_VERSION):
+                return
+            if (app_id, version) == (APPLICATION_ID, 1):
+                self._add_schedule_schema()
+                # Read every migrated row before committing any schema change.
+                self._snapshot()
                 return
             if existed or app_id or version:
                 raise StoreError("This file is damaged, unrecognised, or belongs to another calendar version.")
@@ -77,31 +83,69 @@ class Store:
                 )
             """)
             self.db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-            self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._add_schedule_schema()
+
+    def _add_schedule_schema(self) -> None:
+        self.db.execute("ALTER TABLE entries ADD COLUMN end_at TEXT CHECK (end_at IS NULL OR (at IS NOT NULL AND end_at > at))")
+        self.db.execute("CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def read(self) -> Snapshot:
         try:
             with self.db:
                 self.db.execute("BEGIN")
-                subjects = self.db.execute("SELECT key, name, colour FROM subjects ORDER BY name COLLATE NOCASE").fetchall()
-                names = {row["key"]: row["name"] for row in subjects}
-                colours = {row["name"]: row["colour"] for row in subjects}
-                if any(not re.fullmatch(r"#[0-9a-fA-F]{6}", colour) for colour in colours.values()):
-                    raise ValueError("Invalid subject colour")
-                entries = []
-                with closing(self.db.execute("SELECT * FROM entries")) as rows:
-                    for row in rows:
-                        entry = Entry(
-                            id=row["id"], title=row["title"], day=date.fromisoformat(row["day"]),
-                            at=time.fromisoformat(row["at"]) if row["at"] is not None else None,
-                            subject=names[row["subject_key"]] if row["subject_key"] is not None else "",
-                            kind=row["kind"], custom_kind=row["custom_kind"], notes=row["notes"],
-                            completed=bool(row["completed"]), revision=row["revision"],
-                        )
-                        entries.append(entry.cleaned())
-            return Snapshot(tuple(sorted(entries, key=order_key)), colours)
+                return self._snapshot()
+        except sqlite3.Error as exc:
+            raise StoreError(f"Could not read the saved calendar. {exc}") from exc
+
+    def _snapshot(self) -> Snapshot:
+        try:
+            subjects = self.db.execute("SELECT key, name, colour FROM subjects ORDER BY name COLLATE NOCASE").fetchall()
+            names = {row["key"]: row["name"] for row in subjects}
+            colours = {row["name"]: row["colour"] for row in subjects}
+            if any(not re.fullmatch(r"#[0-9a-fA-F]{6}", colour) for colour in colours.values()):
+                raise ValueError("Invalid subject colour")
+            entries = []
+            with closing(self.db.execute("SELECT * FROM entries")) as rows:
+                for row in rows:
+                    entry = Entry(
+                        id=row["id"], title=row["title"], day=date.fromisoformat(row["day"]),
+                        at=time.fromisoformat(row["at"]) if row["at"] is not None else None,
+                        end_at=time.fromisoformat(row["end_at"]) if row["end_at"] is not None else None,
+                        subject=names[row["subject_key"]] if row["subject_key"] is not None else "",
+                        kind=row["kind"], custom_kind=row["custom_kind"], notes=row["notes"],
+                        completed=bool(row["completed"]), revision=row["revision"],
+                    )
+                    entries.append(entry.cleaned())
+            pref = self.db.execute("SELECT value FROM preferences WHERE key='calendar_view'").fetchone()
+            return Snapshot(tuple(sorted(entries, key=order_key)), colours, "week" if pref and pref[0] == "week" else "month")
         except (sqlite3.Error, ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
             raise StoreError(f"Could not read the saved calendar. {exc}") from exc
+
+    def set_view(self, view: str) -> None:
+        if view not in ("week", "month"):
+            raise StoreError("Choose Month or Week.")
+        try:
+            with self.db:
+                self.db.execute("INSERT OR REPLACE INTO preferences (key, value) VALUES ('calendar_view', ?)", (view,))
+        except sqlite3.Error as exc:
+            raise StoreError(f"Could not save the calendar view. {exc}") from exc
+
+    def add_subject(self, name: str, colour: str) -> None:
+        name = " ".join(name.split())
+        if not name:
+            raise StoreError("Enter a subject name.")
+        if colour not in SUBJECT_COLOURS:
+            raise StoreError("Choose a colour from the palette.")
+        try:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                key = name.casefold()
+                if self.db.execute("SELECT 1 FROM subjects WHERE key=?", (key,)).fetchone():
+                    raise StoreError(f"“{name}” is already in your subjects.")
+                self.db.execute("INSERT INTO subjects (key, name, colour) VALUES (?, ?, ?)", (key, name, colour))
+        except sqlite3.Error as exc:
+            raise StoreError(f"Could not add this subject. {exc}") from exc
 
     def _subject_key(self, name: str) -> str | None:
         if not name:
@@ -119,17 +163,18 @@ class Store:
                 self.db.execute("BEGIN IMMEDIATE")
                 values = (
                     entry.title, entry.day.isoformat(), entry.at.isoformat(timespec="minutes") if entry.at else None,
+                    entry.end_at.isoformat(timespec="minutes") if entry.end_at else None,
                     self._subject_key(entry.subject), entry.kind, entry.custom_kind, entry.notes,
                     int(entry.completed), entry.id,
                 )
                 if entry.revision == 0:
                     self.db.execute("""
-                        INSERT INTO entries (title, day, at, subject_key, kind, custom_kind, notes, completed, id, revision)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        INSERT INTO entries (title, day, at, end_at, subject_key, kind, custom_kind, notes, completed, id, revision)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     """, values)
                 else:
                     result = self.db.execute("""
-                        UPDATE entries SET title=?, day=?, at=?, subject_key=?, kind=?, custom_kind=?,
+                        UPDATE entries SET title=?, day=?, at=?, end_at=?, subject_key=?, kind=?, custom_kind=?,
                         notes=?, completed=?, revision=revision+1 WHERE id=? AND revision=?
                     """, (*values, entry.revision))
                     self._check_changed(result)

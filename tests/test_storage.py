@@ -7,8 +7,8 @@ from datetime import date, time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from school_calendar.model import Entry
-from school_calendar.storage import Store, StoreError, database_path
+from school_calendar.model import Entry, SUBJECT_COLOURS
+from school_calendar.storage import APPLICATION_ID, SCHEMA_VERSION, Store, StoreError, database_path
 
 
 class StorageTests(unittest.TestCase):
@@ -92,3 +92,61 @@ class StorageTests(unittest.TestCase):
             Store(self.path)
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute("SELECT title FROM entries").fetchone()[0], "Keep this")
+
+    def make_v1(self, day="2026-11-03"):
+        with closing(sqlite3.connect(self.path)) as db:
+            db.executescript(f"""
+                PRAGMA application_id={APPLICATION_ID};
+                PRAGMA user_version=1;
+                CREATE TABLE subjects (key TEXT PRIMARY KEY, name TEXT NOT NULL, colour TEXT NOT NULL);
+                CREATE TABLE entries (
+                    id TEXT PRIMARY KEY, title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                    day TEXT NOT NULL, at TEXT, subject_key TEXT REFERENCES subjects(key),
+                    kind TEXT NOT NULL, custom_kind TEXT NOT NULL, notes TEXT NOT NULL,
+                    completed INTEGER NOT NULL CHECK(completed IN (0,1)), revision INTEGER NOT NULL CHECK(revision > 0));
+                INSERT INTO subjects VALUES ('history', 'History', '#946044');
+            """)
+            db.execute("INSERT INTO entries VALUES ('kept','Oral',?,'10:15','history','Custom','Tutorial','Bring notes',1,3)", (day,))
+            db.execute("INSERT INTO entries VALUES ('untimed','Report',?,NULL,NULL,'Assignment','','',0,1)", (day,))
+            db.commit()
+
+    def test_v1_upgrade_keeps_subjects_revisions_and_unknown_durations(self):
+        self.make_v1()
+        expected = Entry("Oral", date(2026, 11, 3), "History", "Custom", time(10,15), "Bring notes", "Tutorial", True, "kept", 3)
+        for _ in range(2):
+            with closing(Store(self.path)) as store:
+                state = store.read()
+                self.assertEqual(state.view, "month")
+                self.assertEqual(state.colours, {"History": "#946044"})
+                self.assertEqual(state.entries[1], expected)
+                self.assertEqual(state.entries[1].time_description, "10:15 · No end time")
+                self.assertEqual(state.entries[0].time_label, "All day")
+                self.assertEqual(store.db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+
+    def test_invalid_v1_data_rolls_back_the_entire_schema_upgrade(self):
+        self.make_v1("invalid")
+        original = self.path.read_bytes()
+        with self.assertRaises(StoreError):
+            Store(self.path)
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_subject_uniqueness_preferences_and_duration_across_connections(self):
+        with closing(Store(self.path)) as first, closing(Store(self.path)) as second:
+            first.add_subject("  Studio  Art ", SUBJECT_COLOURS[5])
+            for name in (" STUDIO art", "studio art ", "  "):
+                with self.assertRaises(StoreError):
+                    second.add_subject(name, SUBJECT_COLOURS[0])
+            with self.assertRaises(StoreError):
+                second.add_subject("Discard", "#123456")
+            for start, end in ((None, time(10)), (time(10), time(10)), (time(23,30), time(0,30))):
+                with self.assertRaises(StoreError):
+                    first.save(Entry("Draft", date.today(), "Unused", at=start, end_at=end))
+            first.save(Entry("Critique", date.today(), "STUDIO ART", at=time(0), end_at=time(0,1)))
+            second.set_view("week")
+            state = first.read()
+            self.assertEqual(state.view, "week")
+            self.assertEqual(state.colours, {"Studio Art": SUBJECT_COLOURS[5]})
+            self.assertEqual(state.entries[0].subject, "Studio Art")
+            self.assertEqual(state.entries[0].time_label, "00:00–00:01")
+        with closing(Store(self.path)) as reopened:
+            self.assertEqual(reopened.read(), state)

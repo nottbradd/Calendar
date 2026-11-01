@@ -11,8 +11,8 @@ from PySide6.QtWidgets import (
 )
 
 from .agenda import EntryList, status_badge, tone_for
-from .appearance import animate_property, button, icon, label, paint_frost
-from .model import Entry, KINDS, countdown, full_day, parse_day, parse_time
+from .appearance import animate_property, button, icon, label, paint_frost, subject_icon
+from .model import Entry, KINDS, countdown, full_day, parse_day, parse_time, validate_times
 from .storage import Snapshot, Store, StoreError
 from .windows import enable_system_frost
 
@@ -58,6 +58,24 @@ def field(caption, control, buddy=None):
     return box
 
 
+def frost_popup(popup):
+    if popup.property("desktopFrost") is None:
+        popup.setProperty("desktopFrost", enable_system_frost(popup))
+        popup.style().polish(popup)
+
+
+class ChoiceBox(QComboBox):
+    def showPopup(self):
+        view = self.view()
+        popup = view.window()
+        if popup.windowType() == Qt.WindowType.Popup:
+            frost_popup(popup)
+            view.setProperty("desktopFrost", popup.property("desktopFrost"))
+            view.style().polish(view)
+            view.viewport().setAutoFillBackground(False)
+        super().showPopup()
+
+
 class DateInput(QWidget):
     def __init__(self, day: date):
         super().__init__()
@@ -97,6 +115,7 @@ class DateInput(QWidget):
         except ValueError:
             day = date.today()
         self.calendar.setSelectedDate(QDate(day.year, day.month, day.day))
+        frost_popup(self.menu)
         self.menu.popup(self.mapToGlobal(QPoint(0, self.height())))
         self.calendar.setFocus()
 
@@ -124,15 +143,15 @@ class EntryEditor(PlannerDialog):
         self.title_input.setObjectName("titleInput")
         self.title_input.setPlaceholderText("What’s coming up?")
         grid.addLayout(field("Title *", self.title_input), 0, 0, 1, 2)
-        self.subject_input = QComboBox()
+        self.subject_input = ChoiceBox()
         self.subject_input.setEditable(True)
         self.subject_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.subject_input.addItems(list(subjects))
-        self.subject_input.setCurrentIndex(-1)
-        self.subject_input.setEditText(entry.subject)
+        for name, colour in subjects.items():
+            self.subject_input.addItem(subject_icon(colour), name)
+        self.subject_input.setCurrentIndex(self.subject_input.findText(entry.subject))
         self.subject_input.lineEdit().setPlaceholderText("Choose or type a subject")
         grid.addLayout(field("Subject", self.subject_input), 1, 0)
-        self.kind_input = QComboBox()
+        self.kind_input = ChoiceBox()
         self.kind_input.addItems(KINDS)
         self.kind_input.setCurrentText(entry.kind)
         grid.addLayout(field("Type", self.kind_input), 1, 1)
@@ -147,7 +166,14 @@ class EntryEditor(PlannerDialog):
         grid.addLayout(field("Date *", self.date_input, self.date_input.text), 3, 0)
         self.time_input = QLineEdit(entry.at.strftime("%H:%M") if entry.at else "")
         self.time_input.setPlaceholderText("All day")
-        grid.addLayout(field("Time (24-hour)", self.time_input), 3, 1)
+        self.end_input = QLineEdit(entry.end_at.strftime("%H:%M") if entry.end_at else "")
+        self.end_input.setPlaceholderText("Optional")
+        times = QHBoxLayout()
+        times.setSpacing(7)
+        for caption, control in (("Start", self.time_input), ("End", self.end_input)):
+            control.setToolTip("Local time in 24-hour format, e.g. 14:30")
+            times.addLayout(field(caption, control), 1)
+        grid.addLayout(times, 3, 1)
         self.notes_input = QPlainTextEdit(entry.notes)
         self.notes_input.setFixedHeight(66)
         self.notes_input.setTabChangesFocus(True)
@@ -173,7 +199,8 @@ class EntryEditor(PlannerDialog):
         self.setTabOrder(self.custom_input, self.date_input.text)
         self.setTabOrder(self.date_input.text, self.date_input.pick)
         self.setTabOrder(self.date_input.pick, self.time_input)
-        self.setTabOrder(self.time_input, self.notes_input)
+        self.setTabOrder(self.time_input, self.end_input)
+        self.setTabOrder(self.end_input, self.notes_input)
         self.resize(466, self.sizeHint().height())
 
     def showEvent(self, event):
@@ -193,7 +220,7 @@ class EntryEditor(PlannerDialog):
         self.error.show()
 
     def save(self):
-        for control in (self.title_input, self.date_input.text, self.time_input):
+        for control in (self.title_input, self.date_input.text, self.time_input, self.end_input):
             control.setProperty("invalid", False)
             control.style().polish(control)
         if not self.title_input.text().strip():
@@ -209,10 +236,16 @@ class EntryEditor(PlannerDialog):
         except ValueError as exc:
             self._invalid(self.time_input, str(exc))
             return
+        try:
+            end_at = parse_time(self.end_input.text())
+            validate_times(at, end_at)
+        except ValueError as exc:
+            self._invalid(self.end_input, str(exc))
+            return
         updated = replace(
             self.original, title=self.title_input.text(), day=day, subject=self.subject_input.currentText(),
             kind=self.kind_input.currentText(), custom_kind=self.custom_input.text(),
-            at=at, notes=self.notes_input.toPlainText(),
+            at=at, end_at=end_at, notes=self.notes_input.toPlainText(),
         )
         try:
             self.store.save(updated)
@@ -243,7 +276,7 @@ class EntryDetails(PlannerDialog):
         subject = label(entry.subject or "No subject")
         subject.setWordWrap(True)
         subject.setToolTip(entry.subject)
-        subject.setStyleSheet(f"color:#28384e; border-left:3px solid {colour}; background:#eaf0f7; padding:3px 7px; font-size:12px;")
+        subject.setStyleSheet(f"color:#28384e; border-left:3px solid {colour}; background:rgba(247,252,255,75); padding:3px 7px; font-size:12px;")
         tags.addWidget(subject)
         kind = label(entry.type_label, "muted")
         kind.setWordWrap(True)
@@ -251,7 +284,7 @@ class EntryDetails(PlannerDialog):
         tags.addStretch()
         self.body.addLayout(tags)
         self.body.addSpacing(3)
-        for glyph, value in (("calendar", full_day(entry.day)), ("clock", entry.time_label)):
+        for glyph, value in (("calendar", full_day(entry.day)), ("clock", entry.time_description)):
             line = QHBoxLayout()
             symbol = QLabel()
             symbol.setPixmap(icon(glyph).pixmap(17, 17))
