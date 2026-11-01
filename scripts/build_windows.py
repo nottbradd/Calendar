@@ -6,6 +6,7 @@ import struct
 import sys
 
 import PyInstaller.__main__
+from PyInstaller.utils.win32 import versioninfo as vi
 from PySide6.QtCore import QBuffer, QIODevice, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
@@ -13,12 +14,17 @@ from PySide6.QtWidgets import QApplication
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from school_calendar import APP_NAME, __version__
+
 ASSETS = ROOT / "school_calendar" / "assets"
 BUILD = ROOT / "build"
 
 
 def windows_icon(target: Path) -> None:
     renderer = QSvgRenderer(str(ASSETS / "calendar.svg"))
+    if not renderer.isValid():
+        raise RuntimeError("The calendar outline SVG could not be loaded")
     sizes = (16, 24, 32, 48, 64, 128, 256)
     data = BytesIO()
     with target.open("wb") as output:
@@ -40,6 +46,19 @@ def windows_icon(target: Path) -> None:
         output.write(data.getvalue())
 
 
+def windows_version(target: Path) -> None:
+    version = (*map(int, __version__.split(".")), 0)
+    strings = {
+        "ProductName": APP_NAME, "FileDescription": APP_NAME, "InternalName": APP_NAME,
+        "OriginalFilename": f"{APP_NAME}.exe", "ProductVersion": __version__, "FileVersion": __version__,
+    }
+    table = vi.StringTable("040904B0", [vi.StringStruct(key, value) for key, value in strings.items()])
+    info = vi.VSVersionInfo(vi.FixedFileInfo(filevers=version, prodvers=version), [
+        vi.StringFileInfo([table]), vi.VarFileInfo([vi.VarStruct("Translation", [0x409, 1200])]),
+    ])
+    target.write_text(str(info), encoding="utf-8")
+
+
 if __name__ == "__main__":
     if sys.platform != "win32":
         raise SystemExit("Run this build on Windows.")
@@ -53,11 +72,13 @@ if __name__ == "__main__":
     )))
     app = QApplication([])
     BUILD.mkdir(exist_ok=True)
-    ico = BUILD / "calendar.ico"
+    ico = BUILD / f"{APP_NAME}.ico"
     windows_icon(ico)
+    version_file = BUILD / "windows-version.txt"
+    windows_version(version_file)
     PyInstaller.__main__.run([
-        "--noconfirm", "--onefile", "--windowed", "--noupx", "--name", "School Calendar",
-        "--icon", str(ico), "--add-data", f"{ASSETS}:school_calendar/assets",
+        "--noconfirm", "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
+        "--icon", str(ico), "--version-file", str(version_file), "--add-data", f"{ASSETS}:school_calendar/assets",
         "--specpath", str(BUILD), "--workpath", str(BUILD / "pyinstaller"), "--distpath", str(ROOT / "dist"),
         str(ROOT / "launch.pyw"),
     ])

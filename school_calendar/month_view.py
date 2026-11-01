@@ -7,7 +7,7 @@ from PySide6.QtCore import Property, QAbstractTableModel, QModelIndex, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QStyledItemDelegate, QStyle, QTableView
 
-from .appearance import BLUE, INK, MUTED, animate_property, font
+from .appearance import ACCENT, INK, MUTED, animate_property, font
 from .model import Entry, NEUTRAL_COLOUR, WEEKDAYS, full_day, month_grid
 from .storage import Snapshot
 
@@ -61,7 +61,7 @@ class MonthModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            return WEEKDAYS[section].upper()
+            return WEEKDAYS[section]
         return None
 
 
@@ -99,44 +99,49 @@ class DayDelegate(QStyledItemDelegate):
         selected = day is not None and day == self.grid.selected
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         in_month = day and day.month == self.grid.selected.month
-        background = "#F6F8FC" if not in_month else ("#F8FAFD" if index.column() >= 5 else "#FCFDFE")
-        painter.fillRect(rect, QColor("#F1F5FD" if hovered else background))
-        painter.setPen(QColor("#DDE5F0"))
+        if not in_month:
+            background = QColor(112, 135, 149, 12)
+        elif index.column() >= 5:
+            background = QColor(154, 176, 182, 12)
+        else:
+            background = QColor(255, 255, 255, 35)
+        painter.fillRect(rect, QColor(145, 175, 183, 25) if hovered else background)
+        painter.setPen(QColor(87, 110, 122, 36))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.drawLine(rect.topRight(), rect.bottomRight())
         if not day:
             painter.restore()
             return
         if selected:
-            selected_wash = QColor("#E4EDFE")
-            selected_wash.setAlphaF(.25 + .55 * self.grid.selectionStrength)
+            selected_wash = QColor("#C2DADB")
+            selected_wash.setAlphaF(.15 + .24 * self.grid.selectionStrength)
             painter.setBrush(selected_wash)
-            painter.setPen(QPen(QColor("#405EAB" if self.grid.hasFocus() else "#8DAAE1"), 2 if self.grid.hasFocus() else 1))
+            painter.setPen(QPen(QColor(ACCENT if self.grid.hasFocus() else "#809EA5"), 2 if self.grid.hasFocus() else 1))
             painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 6, 6)
 
         today = day == self.grid.today
         badge = QRect(rect.x() + 5, rect.y() + 3, 23, 20)
         if today:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(BLUE))
+            painter.setBrush(QColor(ACCENT))
             painter.drawRoundedRect(badge, 9, 9)
-        number_colour = "#FFFFFF" if today else (INK if in_month else "#79869B")
+        number_colour = "#FFFFFF" if today else (INK if in_month else "#657781")
         painter.setPen(QColor(number_colour))
-        painter.setFont(font(13, QFont.Weight.DemiBold if today or selected else QFont.Weight.Normal))
+        painter.setFont(font(14, QFont.Weight.DemiBold if today or selected else QFont.Weight.Normal))
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(day.day))
         entries = model.by_day.get(day, [])
         boxes, more = chip_layout(rect, entries)
         count_in_header = more is not None and more.top() < rect.y() + 21
         if today and rect.width() >= (99 if count_in_header else 65):
-            painter.setFont(font(9, QFont.Weight.Bold))
-            painter.setPen(QColor(BLUE))
-            painter.drawText(badge.translated(27, 0).adjusted(0, 0, 16, 0), Qt.AlignmentFlag.AlignVCenter, "TODAY")
+            painter.setFont(font(12, QFont.Weight.DemiBold))
+            painter.setPen(QColor(ACCENT))
+            painter.drawText(badge.translated(26, 0).adjusted(0, 0, 16, 0), Qt.AlignmentFlag.AlignVCenter, "Today")
 
         for box, entry in boxes:
             self.paint_chip(painter, box, entry, model.colours.get(entry.subject, NEUTRAL_COLOUR))
         if more is not None:
             painter.setPen(QColor(MUTED))
-            painter.setFont(font(10, QFont.Weight.DemiBold))
+            painter.setFont(font(12, QFont.Weight.DemiBold))
             count = len(entries) - len(boxes)
             text = f"+{count}" if count_in_header or more.width() < 42 else f"+{count} more"
             painter.drawText(more.adjusted(3, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter, text)
@@ -157,12 +162,12 @@ class DayDelegate(QStyledItemDelegate):
         title = ("✓ " if entry.completed else "") + entry.title
         if not tall and entry.subject:
             title += " · " + entry.subject
-        painter.setFont(font(11, QFont.Weight.DemiBold))
+        painter.setFont(font(12, QFont.Weight.DemiBold))
         painter.setPen(QColor(MUTED if entry.completed else INK))
         first = QRect(text_box.x(), text_box.y(), text_box.width(), 17) if tall else text_box
         painter.drawText(first, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, first.width()))
         if tall:
-            painter.setFont(font(10))
+            painter.setFont(font(12))
             painter.setPen(QColor(MUTED))
             second = text_box.adjusted(0, 15, 0, -1)
             text = painter.fontMetrics().elidedText(entry.subject or entry.type_label, Qt.TextElideMode.ElideRight, second.width())
@@ -191,6 +196,7 @@ class MonthView(QTableView):
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setTabKeyNavigation(False)
         self.setShowGrid(False)
+        self.viewport().setAutoFillBackground(False)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

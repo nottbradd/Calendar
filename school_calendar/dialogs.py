@@ -11,9 +11,10 @@ from PySide6.QtWidgets import (
 )
 
 from .agenda import EntryList, status_badge, tone_for
-from .appearance import animate_property, button, icon, label
+from .appearance import animate_property, button, icon, label, paint_frost
 from .model import Entry, KINDS, countdown, full_day, parse_day, parse_time
 from .storage import Snapshot, Store, StoreError
+from .windows import enable_system_frost
 
 
 class PlannerDialog(QDialog):
@@ -23,13 +24,18 @@ class PlannerDialog(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.native_frost = enable_system_frost(self)
         self.body = QVBoxLayout(self)
-        self.body.setContentsMargins(22, 17, 22, 19)
-        self.body.setSpacing(10)
+        self.body.setContentsMargins(18, 14, 18, 16)
+        self.body.setSpacing(8)
+
+    def paintEvent(self, _event):
+        paint_frost(self, self.native_frost)
 
     def showEvent(self, event):
         super().showEvent(event)
-        animate_property(self, self, b"windowOpacity", .93, 1.0)
+        if not self.native_frost:
+            animate_property(self, self, b"windowOpacity", .93, 1.0)
 
     def error_label(self):
         result = label("", "error")
@@ -108,8 +114,6 @@ class EntryEditor(PlannerDialog):
         super().__init__(parent, title)
         self.store, self.original = store, entry
         self.setMinimumWidth(432)
-        self.body.addWidget(label("ASSESSMENT PLANNER", "eyebrow"))
-        self.body.addWidget(label(title, "heading"))
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(9)
@@ -228,7 +232,6 @@ class EntryDetails(PlannerDialog):
         super().__init__(parent, "Entry details")
         self.store, self.entry = store, entry
         self.setMinimumWidth(406)
-        self.body.addWidget(label("ENTRY DETAILS", "eyebrow"))
         title = label(entry.title, "heading")
         title.setWordWrap(True)
         title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -329,7 +332,6 @@ class DayDetails(PlannerDialog):
 
     def __init__(self, parent, day: date, today: date, snapshot: Snapshot):
         super().__init__(parent, "Day entries")
-        self.body.addWidget(label("SELECTED DAY", "eyebrow"))
         self.body.addWidget(label(full_day(day), "subheading"))
         entries = [entry for entry in snapshot.entries if entry.day == day]
         self.rows = EntryList()

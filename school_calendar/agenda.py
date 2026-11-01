@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractButton, QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .appearance import BLUE, INK, MUTED, font, icon, label
+from .appearance import ACCENT, INK, MUTED, font, label
 from .model import Entry, NEUTRAL_COLOUR, countdown, full_day
 
 
@@ -24,7 +24,7 @@ class EntryRow(QAbstractButton):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(56)
+        self.setFixedHeight(49)
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -36,21 +36,22 @@ class EntryRow(QAbstractButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         box = self.rect().adjusted(1, 1, -1, -1)
-        painter.setBrush(QColor("#E9F0FB" if self.underMouse() or self.isDown() else "#F9FBFE"))
-        painter.setPen(QPen(QColor(BLUE if self.hasFocus() else "#DFE6F0"), 2 if self.hasFocus() else 1))
-        painter.drawRoundedRect(box, 8, 8)
+        if self.hasFocus() or self.underMouse() or self.isDown():
+            painter.setBrush(QColor(216, 231, 233, 170))
+            painter.setPen(QPen(QColor(ACCENT), 2) if self.hasFocus() else Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(box, 6, 6)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(self.colour))
-        painter.drawRoundedRect(QRect(10, 12, 3, 32), 1.5, 1.5)
-        text_left = 22
-        title_box = QRect(text_left, 5, self.width() - text_left - 11, 23)
+        painter.drawRoundedRect(QRect(5, 9, 3, 31), 1.5, 1.5)
+        text_left = 16
+        title_box = QRect(text_left, 2, self.width() - text_left - 6, 23)
         painter.setPen(QColor(MUTED if self.entry.completed else INK))
-        painter.setFont(font(14, QFont.Weight.DemiBold))
+        painter.setFont(font(16, QFont.Weight.DemiBold))
         title = ("✓ " if self.entry.completed else "") + self.entry.title
         painter.drawText(title_box, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, title_box.width()))
-        painter.setFont(font(11))
+        painter.setFont(font(14))
         painter.setPen(QColor(MUTED))
-        time_box = QRect(self.width() - 50, 28, 39, 19)
+        time_box = QRect(self.width() - 52, 24, 47, 19)
         painter.drawText(time_box, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, self.entry.time_label)
         meta_box = QRect(text_left, 28, max(1, time_box.x() - text_left - 5), 19)
         meta = " · ".join(filter(None, (self.entry.subject, self.entry.type_label)))
@@ -59,12 +60,12 @@ class EntryRow(QAbstractButton):
 
 def status_badge(text: str, tone: str) -> QLabel:
     colours = {
-        "overdue": ("#884A36", "#F8EBE4"), "today": ("#315AA9", "#E5EDFD"),
-        "done": ("#3D695F", "#E7F1EC"), "later": ("#536780", "#EAF0F7"),
+        "overdue": ("#80432F", "#F5E5DD"), "today": ("#2F5760", "#DAE9E9"),
+        "done": ("#355C51", "#DEEAE4"), "later": (MUTED, "transparent"),
     }
     fg, bg = colours[tone]
     badge = label(text)
-    badge.setStyleSheet(f"color:{fg}; background:{bg}; border-radius:6px; padding:2px 6px; font-size:11px; font-weight:600;")
+    badge.setStyleSheet(f"color:{fg}; background:{bg}; border-radius:5px; padding:1px 5px; font-size:12px; font-weight:600;")
     return badge
 
 
@@ -93,29 +94,20 @@ class EntryList(QScrollArea):
         contents.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(contents)
         layout.setContentsMargins(1, 0, 4, 2)
-        layout.setSpacing(5)
+        layout.setSpacing(3)
         if not entries:
-            layout.addSpacing(19)
-            tile = QLabel()
-            tile.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            tile.setFixedSize(48, 48)
-            tile.setPixmap(icon("agenda", "#5679B2", 26).pixmap(26, 26))
-            tile.setStyleSheet("background:#e8effa; border:1px solid #d7e3f4; border-radius:14px;")
-            layout.addWidget(tile, 0, Qt.AlignmentFlag.AlignHCenter)
-            layout.addSpacing(5)
+            layout.addSpacing(14)
             header = label(empty_title, "subheading")
-            header.setAlignment(Qt.AlignmentFlag.AlignCenter)
             header.setWordWrap(True)
             layout.addWidget(header)
             hint = label(empty_body, "muted")
-            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
             hint.setWordWrap(True)
             layout.addWidget(hint)
         for group_day, items in groupby(entries, key=lambda e: e.day):
             day_entries = list(items)
             if groups:
                 if layout.count():
-                    layout.addSpacing(7)
+                    layout.addSpacing(5)
                 heading = QHBoxLayout()
                 heading.setContentsMargins(1, 3, 1, 3)
                 date_text = f"{group_day:%a}, {group_day.day} {group_day:%b}"

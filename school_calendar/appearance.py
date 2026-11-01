@@ -6,14 +6,14 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QDir, QEasingCurve, QPropertyAnimation, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPixmap, QRadialGradient
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QLinearGradient, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QPushButton, QWidget
 
 
-INK = "#1D293D"
-MUTED = "#52657D"
-BLUE = "#315FBA"
+INK = "#20313B"
+MUTED = "#485C69"
+ACCENT = "#345E70"
 ASSETS = Path(__file__).with_name("assets")
 PATHS = {
     "plus": "M12 5v14M5 12h14",
@@ -31,7 +31,7 @@ PATHS = {
 
 
 def font(size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
-    result = QFont("Segoe UI")
+    result = QFont(QApplication.font())
     result.setPixelSize(size)
     result.setWeight(weight)
     return result
@@ -74,31 +74,32 @@ def glass_panel() -> QFrame:
     panel = QFrame()
     panel.setObjectName("glass")
     shadow = QGraphicsDropShadowEffect(panel)
-    shadow.setColor(QColor(42, 62, 100, 28))
-    shadow.setBlurRadius(21)
-    shadow.setOffset(0, 5)
+    shadow.setColor(QColor(38, 51, 60, 24))
+    shadow.setBlurRadius(15)
+    shadow.setOffset(0, 3)
     panel.setGraphicsEffect(shadow)
     return panel
 
 
+def paint_frost(widget: QWidget, native: bool) -> None:
+    painter = QPainter(widget)
+    rect = QRectF(widget.rect())
+    wash = QLinearGradient(rect.topLeft(), rect.bottomRight())
+    wash.setColorAt(0, QColor(216, 232, 236, 148 if native else 255))
+    wash.setColorAt(.50, QColor(236, 239, 244, 155 if native else 255))
+    wash.setColorAt(1, QColor(236, 225, 220, 142 if native else 255))
+    # Replace the backing pixels on every repaint so the tint does not build up.
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+    painter.fillRect(rect, wash)
+
+
 class Backdrop(QWidget):
+    def __init__(self, native: bool):
+        super().__init__()
+        self.native = native
+
     def paintEvent(self, _event) -> None:
-        painter = QPainter(self)
-        rect = QRectF(self.rect())
-        wash = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        wash.setColorAt(0, QColor("#E0EAF9"))
-        wash.setColorAt(.55, QColor("#E8EEF7"))
-        wash.setColorAt(1, QColor("#E1E9F2"))
-        painter.fillRect(rect, wash)
-        for x, y, radius, tint in (
-            (.84, -.18, .72, QColor(248, 218, 204, 152)),
-            (.05, .95, .58, QColor(198, 214, 239, 140)),
-        ):
-            light = QRadialGradient(rect.width() * x, rect.height() * y, rect.width() * radius)
-            light.setColorAt(0, tint)
-            tint.setAlpha(0)
-            light.setColorAt(1, tint)
-            painter.fillRect(rect, light)
+        paint_frost(self, self.native)
 
 
 def motion_enabled() -> bool:
@@ -130,7 +131,11 @@ def animate_property(owner, target, name: bytes, start: float, end: float) -> No
 def apply_theme(app: QApplication) -> None:
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyle("Fusion")
-    app.setFont(font(14))
+    font_id = QFontDatabase.addApplicationFont(str(ASSETS / "fonts" / "SourceSans3VF-Upright.ttf"))
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    base = QFont(families[0] if families else "Segoe UI Variable Text")
+    base.setPixelSize(14)
+    app.setFont(base)
     QDir.setSearchPaths("planner", [str(ASSETS)])
     app.setWindowIcon(QIcon(str(ASSETS / "calendar.svg")))
     app.setStyleSheet((ASSETS / "theme.qss").read_text(encoding="utf-8"))

@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from dataclasses import replace
 from datetime import date, time
@@ -7,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from school_calendar.model import Entry
-from school_calendar.storage import Store, StoreError
+from school_calendar.storage import Store, StoreError, database_path
 
 
 class StorageTests(unittest.TestCase):
@@ -15,6 +16,16 @@ class StorageTests(unittest.TestCase):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.path = Path(temp.name) / "calendar.sqlite3"
+
+    def test_default_location_reopens_a_calendar_from_before_the_rename(self):
+        profile = self.path.parent
+        original = profile / "SchoolCalendar" / "calendar.sqlite3"
+        with closing(Store(original)) as previous:
+            previous.save(Entry("Revision", date(2026, 11, 7), "History", notes="Chapter 4", completed=True))
+            expected = previous.read()
+        with patch.dict("os.environ", LOCALAPPDATA=str(profile)), closing(Store(database_path())) as renamed:
+            self.assertTrue(original.samefile(renamed.path))
+            self.assertEqual(renamed.read(), expected)
 
     def test_lifecycle_and_subject_colours_survive_separate_connections(self):
         original = Entry("Portfolio", date(2026, 10, 4), " Studio   Art ", notes="Bring folio")

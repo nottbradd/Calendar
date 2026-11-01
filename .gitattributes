@@ -5,3 +5,7 @@
 *.qss text eol=lf
 *.ps1 text eol=crlf
 *.ico binary
+*.ttf binary
+*.png binary
+# Preserve the font licence exactly as distributed by Adobe.
+school_calendar/assets/fonts/LICENSE.md -text -whitespace
