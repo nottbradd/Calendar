@@ -55,9 +55,10 @@ QCalendarWidget QToolButton { color: #2a444e; background: transparent; padding: 
 QCalendarWidget QWidget#qt_calendar_navigationbar { background: rgba(207,225,229,95); }
 QCalendarWidget QAbstractItemView { background: rgba(247,252,253,85); color: #20313b; selection-background-color: #345e70; selection-color: white; }
 QScrollArea, QWidget#listContents, QTableView, QHeaderView { background: transparent; border: none; }
-QListWidget#subjects { background: rgba(250,254,255,63); border: 1px solid rgba(102,125,133,52); border-radius: 7px; padding: 3px; }
-QListWidget#subjects::item { padding: 3px 6px; border-radius: 4px; }
-QListWidget#subjects::item:selected { color: #233b47; background: rgba(160,190,198,91); }
+QListWidget#subjects, QListWidget#syncList { background: rgba(250,254,255,63); border: 1px solid rgba(102,125,133,52); border-radius: 7px; padding: 3px; }
+QListWidget#subjects::item, QListWidget#syncList::item { padding: 3px 6px; border-radius: 4px; }
+QListWidget#subjects::item:selected, QListWidget#syncList::item:selected { color: #233b47; background: rgba(160,190,198,91); }
+QPushButton:disabled { color: #657176; border-color: rgba(90,112,122,40); background: rgba(226,233,236,80); }
 QFrame#viewSwitch { background: rgba(249,253,255,75); border: 1px solid rgba(100,123,134,58); border-radius: 7px; }
 QPushButton[role="swatch"] { border: 1px solid transparent; border-radius: 14px; background: transparent; padding: 0; }
 QPushButton[role="swatch"]:hover { background: rgba(250,255,255,100); }

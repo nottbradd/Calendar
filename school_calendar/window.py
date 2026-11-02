@@ -14,6 +14,8 @@ from .model import Entry, NEUTRAL_COLOUR, shift_month
 from .month_view import MonthView
 from .settings import SettingsDialog
 from .storage import Store, StoreError
+from .sync_client import summary
+from .sync_ui import SyncController, SyncDialog
 from .week_view import WeekView, week_days, week_title
 from .windows import enable_system_frost
 
@@ -49,6 +51,12 @@ class CalendarWindow(QMainWindow):
         self.agenda_panel = self._agenda_panel()
         panels.addWidget(self.agenda_panel, 3)
         outer.addLayout(panels, 1)
+        self.sync_notice = label("", "muted")
+        outer.addWidget(self.sync_notice)
+        self.sync_control = SyncController(self, store)
+        self.sync_control.changed.connect(self._sync_status)
+        self.sync_control.completed.connect(lambda _action, _result: self.reload())
+        self._sync_status()
         self.select(self.selected)
         self.render_agenda()
         if self.snapshot.view == "month":
@@ -286,6 +294,12 @@ class CalendarWindow(QMainWindow):
             self.snapshot = current
             self.select(self.selected)
             self.render_agenda()
+        self.sync_control.local_change()
+
+    def _sync_status(self):
+        info = summary(self.store.db)
+        self.sync_notice.setVisible(info["phase"] != "disabled")
+        self.sync_notice.setText(self.sync_control.status(info))
 
     def _present(self, dialog):
         self.dialog = dialog
@@ -309,6 +323,10 @@ class CalendarWindow(QMainWindow):
     def open_settings(self):
         dialog = SettingsDialog(self, self.store, self.snapshot.colours)
         dialog.subjects_changed.connect(self.reload)
+        def open_sync():
+            dialog.accept()
+            self._present(SyncDialog(self, self.sync_control))
+        dialog.sync_requested.connect(open_sync)
         self._present(dialog)
 
     def open_details(self, entry):
@@ -338,5 +356,6 @@ class CalendarWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
+        self.sync_control.close()
         self.day_timer.stop()
         super().closeEvent(event)

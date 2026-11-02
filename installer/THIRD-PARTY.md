@@ -17,4 +17,6 @@ To use a modified library, build a compatible x64 version using the upstream sou
 
 ## Other components
 
+The sync prototype uses PyNaCl and libsodium for authenticated encryption and sealed key envelopes. Windows builds include their license texts, together with the cffi and pycparser notices, in the bundled Python package metadata. [PyNaCl](https://github.com/pyca/pynacl) · [libsodium](https://github.com/jedisct1/libsodium)
+
 The installer includes the licence texts for [Python](https://www.python.org/downloads/source/), [PyInstaller](https://github.com/pyinstaller/pyinstaller/tree/v6.22.3), [Inno Setup](https://github.com/jrsoftware/issrc/tree/is-6_7_3), [OpenSSL](https://github.com/openssl/openssl/tree/openssl-3.0.18), [libffi](https://github.com/libffi/libffi) and [Source Sans 3](https://github.com/adobe-fonts/source-sans/releases/tag/3.052R). [SQLite is in the public domain](https://sqlite.org/copyright.html).

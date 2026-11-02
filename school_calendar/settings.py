@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem
+from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMessageBox
 
 from .appearance import button, label, subject_icon
 from .dialogs import PlannerDialog, field
@@ -11,6 +11,7 @@ from .storage import Store, StoreError
 
 class SettingsDialog(PlannerDialog):
     subjects_changed = Signal()
+    sync_requested = Signal()
 
     def __init__(self, parent, store: Store, colours):
         super().__init__(parent, "Settings")
@@ -20,6 +21,9 @@ class SettingsDialog(PlannerDialog):
         heading.addStretch()
         self.count = label("", "count")
         heading.addWidget(self.count, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.sync_button = button("Sync…")
+        self.sync_button.clicked.connect(self.sync_requested)
+        heading.addWidget(self.sync_button)
         self.body.addLayout(heading)
         self.subjects = QListWidget()
         self.subjects.setObjectName("subjects")
@@ -54,6 +58,18 @@ class SettingsDialog(PlannerDialog):
             swatches.addWidget(option)
         swatches.addStretch()
         self.body.addLayout(swatches)
+        recolour = button("Apply colour to selected subject")
+        recolour.setEnabled(False)
+        self.subjects.currentRowChanged.connect(lambda row: recolour.setEnabled(row >= 0))
+        recolour.clicked.connect(self.recolour)
+        subject_actions = QHBoxLayout()
+        subject_actions.addWidget(recolour)
+        remove = button("Remove subject")
+        remove.setEnabled(False)
+        self.subjects.currentRowChanged.connect(lambda row: remove.setEnabled(row >= 0))
+        remove.clicked.connect(self.remove_subject)
+        subject_actions.addWidget(remove)
+        self.body.addLayout(subject_actions)
         self.error = self.error_label()
         self.body.addWidget(self.error)
         actions = QHBoxLayout()
@@ -72,6 +88,41 @@ class SettingsDialog(PlannerDialog):
         self.refresh(colours)
         self.resize(406, 403)
         self.name_input.setFocus()
+
+    def recolour(self):
+        item = self.subjects.currentItem()
+        if not item:
+            return
+        try:
+            self.store.set_subject_colour(item.text(), SUBJECT_COLOURS[self.swatch_group.checkedId()])
+            self.refresh(self.store.read().colours)
+        except StoreError as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+            return
+        self.error.hide()
+        self.feedback.setText("Subject colour saved.")
+        self.subjects_changed.emit()
+
+    def remove_subject(self):
+        item = self.subjects.currentItem()
+        if not item:
+            return
+        if QMessageBox.question(self, "Remove subject", "Hide this subject on all linked PCs? Its entries will remain. "
+                                "Adding the same subject again restores its label.",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.store.remove_subject(item.text())
+            self.refresh(self.store.read().colours)
+        except StoreError as exc:
+            self.error.setText(str(exc))
+            self.error.show()
+            return
+        self.error.hide()
+        self.feedback.setText("Subject removed.")
+        self.subjects_changed.emit()
 
     def refresh(self, colours):
         self.subjects.clear()

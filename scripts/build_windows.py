@@ -86,6 +86,9 @@ if __name__ == "__main__":
         "--noconfirm", "--onedir" if options.installer_runtime else "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
         "--icon", str(ico), "--version-file", str(version_file), "--add-data", f"{ASSETS}:school_calendar/assets",
         "--add-data", f"{ROOT / 'LICENSE'}:.",
+        "--copy-metadata", "PyNaCl", "--copy-metadata", "cffi", "--copy-metadata", "pycparser",
+        # PyNaCl's compiled extension imports the CFFI backend from C at runtime.
+        "--hidden-import", "_cffi_backend",
         "--specpath", str(BUILD), "--workpath", str(work), "--distpath", str(destination),
         str(ROOT / "launch.pyw"),
     ])

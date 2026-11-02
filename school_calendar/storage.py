@@ -10,10 +10,11 @@ from datetime import date, time
 from pathlib import Path
 
 from .model import Entry, SUBJECT_COLOURS, order_key
+from . import sync_journal as journal
 
 
 APPLICATION_ID = 0x5343414C  # SCAL
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class StoreError(Exception):
@@ -61,8 +62,10 @@ class Store:
                 raise StoreError("The calendar contains a broken subject reference.")
             if (app_id, version) == (APPLICATION_ID, SCHEMA_VERSION):
                 return
-            if (app_id, version) == (APPLICATION_ID, 1):
-                self._add_schedule_schema()
+            if app_id == APPLICATION_ID and version in (1, 2):
+                if version == 1:
+                    self._add_schedule_schema()
+                self._add_sync_schema()
                 # Read every migrated row before committing any schema change.
                 self._snapshot()
                 return
@@ -84,10 +87,14 @@ class Store:
             """)
             self.db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             self._add_schedule_schema()
+            self._add_sync_schema()
 
     def _add_schedule_schema(self) -> None:
         self.db.execute("ALTER TABLE entries ADD COLUMN end_at TEXT CHECK (end_at IS NULL OR (at IS NOT NULL AND end_at > at))")
         self.db.execute("CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+    def _add_sync_schema(self) -> None:
+        journal.create_schema(self.db)
         self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def read(self) -> Snapshot:
@@ -100,9 +107,9 @@ class Store:
 
     def _snapshot(self) -> Snapshot:
         try:
-            subjects = self.db.execute("SELECT key, name, colour FROM subjects ORDER BY name COLLATE NOCASE").fetchall()
-            names = {row["key"]: row["name"] for row in subjects}
-            colours = {row["name"]: row["colour"] for row in subjects}
+            subjects = self.db.execute("SELECT key,name,colour,hidden FROM subjects ORDER BY name COLLATE NOCASE").fetchall()
+            names = {row["key"]: "" if row["hidden"] else row["name"] for row in subjects}
+            colours = {row["name"]: row["colour"] for row in subjects if not row["hidden"]}
             if any(not re.fullmatch(r"#[0-9a-fA-F]{6}", colour) for colour in colours.values()):
                 raise ValueError("Invalid subject colour")
             entries = []
@@ -141,20 +148,54 @@ class Store:
             with self.db:
                 self.db.execute("BEGIN IMMEDIATE")
                 key = name.casefold()
-                if self.db.execute("SELECT 1 FROM subjects WHERE key=?", (key,)).fetchone():
+                if self.db.execute("SELECT 1 FROM subjects WHERE key=? AND hidden=0", (key,)).fetchone():
                     raise StoreError(f"“{name}” is already in your subjects.")
-                self.db.execute("INSERT INTO subjects (key, name, colour) VALUES (?, ?, ?)", (key, name, colour))
-        except sqlite3.Error as exc:
+                self.db.execute("""INSERT INTO subjects(key,name,colour) VALUES (?,?,?) ON CONFLICT(key)
+                                   DO UPDATE SET name=excluded.name,colour=excluded.colour,hidden=0""", (key, name, colour))
+                journal.record(self.db, "s:" + key, {"name": name, "colour": colour})
+        except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not add this subject. {exc}") from exc
 
     def _subject_key(self, name: str) -> str | None:
         if not name:
             return None
         key = name.casefold()
-        if not self.db.execute("SELECT 1 FROM subjects WHERE key = ?", (key,)).fetchone():
-            count = self.db.execute("SELECT count(*) FROM subjects").fetchone()[0]
-            self.db.execute("INSERT INTO subjects VALUES (?, ?, ?)", (key, name, SUBJECT_COLOURS[count % len(SUBJECT_COLOURS)]))
+        existing = self.db.execute("SELECT hidden FROM subjects WHERE key=?", (key,)).fetchone()
+        if existing and existing["hidden"]:
+            raise StoreError("This subject was removed. Add it in Settings to use it again.")
+        if not existing:
+            count = self.db.execute("SELECT count(*) FROM subjects WHERE hidden=0").fetchone()[0]
+            colour = SUBJECT_COLOURS[count % len(SUBJECT_COLOURS)]
+            self.db.execute("INSERT INTO subjects(key,name,colour) VALUES (?, ?, ?)", (key, name, colour))
+            journal.record(self.db, "s:" + key, {"name": name, "colour": colour})
         return key
+
+    def set_subject_colour(self, name: str, colour: str) -> None:
+        if colour not in SUBJECT_COLOURS:
+            raise StoreError("Choose a colour from the palette.")
+        try:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                key = name.casefold()
+                row = self.db.execute("SELECT name FROM subjects WHERE key=? AND hidden=0", (key,)).fetchone()
+                if not row:
+                    raise StoreError("Choose a saved subject.")
+                self.db.execute("UPDATE subjects SET colour=? WHERE key=?", (colour, key))
+                journal.record(self.db, "s:" + key, {"name": row["name"], "colour": colour})
+        except (sqlite3.Error, ValueError) as exc:
+            raise StoreError(f"Could not save the subject colour. {exc}") from exc
+
+    def remove_subject(self, name: str) -> None:
+        key = name.casefold()
+        try:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                result = self.db.execute("UPDATE subjects SET hidden=1 WHERE key=? AND hidden=0", (key,))
+                if not result.rowcount:
+                    raise StoreError("Choose a saved subject.")
+                journal.record(self.db, "s:" + key, None)
+        except (sqlite3.Error, ValueError) as exc:
+            raise StoreError(f"Could not remove the subject. {exc}") from exc
 
     def save(self, entry: Entry) -> None:
         try:
@@ -178,6 +219,7 @@ class Store:
                         notes=?, completed=?, revision=revision+1 WHERE id=? AND revision=?
                     """, (*values, entry.revision))
                     self._check_changed(result)
+                journal.record(self.db, "e:" + entry.id, journal.entry_value(entry))
         except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not save this entry. {exc}") from exc
 
@@ -191,7 +233,8 @@ class Store:
             with self.db:
                 result = self.db.execute("DELETE FROM entries WHERE id=? AND revision=?", (entry.id, entry.revision))
                 self._check_changed(result)
-        except sqlite3.Error as exc:
+                journal.record(self.db, "e:" + entry.id, None)
+        except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not delete this entry. {exc}") from exc
 
     def close(self) -> None:

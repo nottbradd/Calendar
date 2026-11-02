@@ -59,13 +59,13 @@ Open **Settings**, enter a subject name, choose a colour, and select **Add subje
 
 ## Local data
 
-Calender opens the original database at **%LOCALAPPDATA%\SchoolCalendar\calendar.sqlite3**. Version 1.2 upgrades earlier calendars in a single SQLite transaction. Existing entries retain their IDs, notes, completion state, start times and subject colours. Their end times stay blank. The source and standalone versions share this location. Dates are stored as calendar dates and times as local clock times. Countdowns use the computer’s local date.
+Calender opens the original database at **%LOCALAPPDATA%\SchoolCalendar\calendar.sqlite3**. The 1.3 prototype upgrades schema 1 or 2 in a single transaction and keeps entry IDs, notes, completion states, times, subject colours and view preferences. Sync starts disabled. The source and standalone versions share this location. Dates are stored as calendar dates and times as local clock times. Countdowns use the computer’s local date.
 
-To back up or move a calendar, close every Calender window and copy the database file. To restore it, close the app, keep a copy of your current database, and put the backup at the path above. If the app cannot read a file, it reports the error and preserves the file. A failed save leaves the editor open with your values.
+To back up a calendar, close every Calender window and copy the database file. To restore it on the same PC, close the app, keep a copy of your current database, and put the backup at the path above. A second synced PC should join with its own installation and database. If the app cannot read a file, it reports the error and preserves the file. A failed save leaves the editor open with your values.
 
 ## Sync prototype
 
-The desktop app keeps calendar entries on this PC. A separate development Worker exposes a read-only D1 health check. [Backend setup and verification](backend/README.md)
+The 1.3.0 development build adds opt-in encrypted sync under **Settings → Sync**. Each PC keeps its local SQLite calendar and can edit offline. A paired PC can approve another device, review competing changes or revoke access. The public 1.2.0 installer above is the earlier offline release. [Two-PC trial, screenshots and security design](backend/README.md)
 
 ## Appearance
 
@@ -95,12 +95,12 @@ To build the per-user installer, install [Inno Setup 6](https://jrsoftware.org/i
 .\.venv\Scripts\python.exe .\scripts\build_installer.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ~~~
 
-The installer build freezes a fresh directory runtime with replaceable Qt DLLs. It writes **Calender-1.2.0-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
+The installer build freezes a fresh directory runtime with replaceable Qt DLLs. This source version writes **Calender-1.3.0-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
 
 On a Windows test account without an existing Calender installation, run the installer smoke test in PowerShell 7. It creates a disposable calendar, tests both shortcut choices, reopens the saved entry after reinstalling, and checks the database after uninstalling.
 
 ~~~powershell
-.\scripts\test_installer.ps1 -Installer .\dist\release\Calender-1.2.0-Setup.exe
+.\scripts\test_installer.ps1 -Installer .\dist\release\Calender-1.3.0-Setup.exe
 ~~~
 
 The public site is served by GitHub Pages from **docs** on **main**. Its screenshots use sample entries. Build outputs, dependencies and personal calendars stay outside Git.

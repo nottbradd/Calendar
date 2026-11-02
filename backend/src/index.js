@@ -1,3 +1,5 @@
+import { syncRequest } from "./sync.js";
+
 function statusResponse(status, code, headers = {}) {
   return Response.json({ status }, {
     status: code,
@@ -7,7 +9,10 @@ function statusResponse(status, code, headers = {}) {
 
 export default {
   async fetch(request, env) {
-    if (new URL(request.url).pathname !== "/health") {
+    const path = new URL(request.url).pathname;
+    const route = /^\/v1\/([0-9a-f]{32})\/([a-z]+)$/.exec(path);
+    if (route) return syncRequest(request, env.DB, route[1], route[2]);
+    if (path !== "/health") {
       return statusResponse("not_found", 404);
     }
     if (request.method !== "GET") {
