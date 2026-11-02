@@ -199,8 +199,7 @@ class SyncDialog(PlannerDialog):
         self.body.addWidget(self.status_label)
         self.contact = note("")
         self.body.addWidget(self.contact)
-        self.message = note("Linking merges entries and subjects already on both PCs. "
-                            "Matching IDs with different contents are kept for review. Views stay on each PC.")
+        self.message = note("")
         self.body.addWidget(self.message)
         self.setup_row = self.actions([("Create calendar", self.create), ("Join calendar", self.join), ("Recover", self.recover)])
         self.devices_title = label("Paired devices", "field")
@@ -248,12 +247,26 @@ class SyncDialog(PlannerDialog):
         self.control.completed.disconnect(self.completed)
         self.code.clear()
 
+    def linking_note(self):
+        scope = journal.selected_scope(self.store.db)
+        if scope and scope["verified"]:
+            return ("Rejoin the same calendar to send changes kept on this PC. Linking a different calendar "
+                    "opens it separately; this calendar’s entries and unsent changes stay here for your return.")
+        return ("First-time linking merges the entries and subjects already on both PCs. "
+                "Matching IDs with different contents are kept for review. Views stay on each PC.")
+
     def refresh(self):
         info = summary(self.store.db)
         phase, busy = info["phase"], self.control.busy
         self.status_label.setText(self.control.status(info))
         when = datetime.fromisoformat(info["contact"]).astimezone().strftime("%d %b, %H:%M:%S") if info["contact"] else "No successful sync yet"
-        self.contact.setText(f"Last server contact  ·  {when}\nWaiting to upload  ·  {info['pending']}")
+        if phase == "disabled":
+            self.contact.setText(f"Unsent changes kept for this calendar  ·  {info['retained']}")
+            self.message.setText(self.linking_note())
+        elif phase == "active":
+            self.contact.setText(f"Last server contact  ·  {when}\nWaiting to upload  ·  {info['pending']}")
+        else:
+            self.contact.setText(f"Last server contact  ·  {when}")
         for control in self.setup_row:
             control.setVisible(phase == "disabled")
             control.setEnabled(not busy)
@@ -345,7 +358,7 @@ class SyncDialog(PlannerDialog):
         dialog = PlannerDialog(self, "Recover calendar")
         dialog.body.addWidget(label("Recover on this PC", "heading"))
         dialog.body.addWidget(note("Enter the private recovery key you saved when you created the calendar. "
-                                   "Your local entries will merge with the recovered calendar."))
+                                   + self.linking_note()))
         value = QLineEdit()
         value.setEchoMode(QLineEdit.EchoMode.Password)
         value.setAccessibleName("Private recovery key")
@@ -373,8 +386,9 @@ class SyncDialog(PlannerDialog):
             self.control.start("revoke", device)
 
     def disconnect(self):
-        if QMessageBox.question(self, "Disconnect this PC", "Keep local entries and forget this PC’s sync keys and queue? "
-                                "Pending changes will stay on this PC. Revoke its device ID from another PC to remove server access.",
+        if QMessageBox.question(self, "Disconnect this PC", "Turn off sync and forget this PC’s sync keys? "
+                                "Your entries stay on this PC. Unsent edits and deletions will sync when you rejoin "
+                                "their original calendar. To revoke this device’s access, use another paired PC.",
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                 QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             self.control.start("disconnect")

@@ -74,7 +74,8 @@ def sealed_profile(identity):
 def summary(db):
     row = db.execute("SELECT phase,contact,device FROM sync_profile").fetchone()
     if not row:
-        return {"phase": "disabled", "pending": 0, "oversized": 0, "conflicts": [], "contact": None}
+        return {"phase": "disabled", "pending": 0, "oversized": 0, "conflicts": [], "contact": None,
+                "retained": db.execute("SELECT count(*) FROM sync_ops WHERE pending>0").fetchone()[0]}
     return {**dict(row), "pending": db.execute("SELECT count(*) FROM sync_ops WHERE pending>0").fetchone()[0],
             "oversized": db.execute("SELECT count(*) FROM sync_ops WHERE pending=2").fetchone()[0],
             "conflicts": journal.conflicts(db)}
@@ -120,7 +121,10 @@ class Sync:
                 raise ValueError("Disconnect the current profile before linking another calendar.")
             self.db.execute("INSERT INTO sync_profile(slot,device,phase,secret) VALUES (1,?,?,?)",
                             (ident["device"], mode, sealed_profile(ident)))
-            journal.seed(self.store)
+            if journal.selected_scope(self.db) is None:
+                journal.bind_scope(self.db, ident["anchor"], False)
+                journal.seed(self.store)
+            # A previous calendar remains open and editable until enrollment succeeds.
         return ident["device"]
 
     def _check(self, ident):
@@ -140,10 +144,11 @@ class Sync:
         ident.pop("setup", None)
         ident.update(keys=keys, state={k: v for k, v in state.items() if k != "box"})
         with self.db:
-            saved = self.db.execute("UPDATE sync_profile SET secret=?,phase='active',contact=? WHERE device=?",
-                                    (sealed_profile(ident), datetime.now(timezone.utc).isoformat(timespec="seconds"), ident["device"]))
-            if not saved.rowcount:
-                raise SyncError("profile_changed")
+            self.db.execute("BEGIN IMMEDIATE")
+            self._check(ident)
+            journal.activate_scope(self.store, ident["anchor"])
+            self.db.execute("UPDATE sync_profile SET secret=?,phase='active',contact=? WHERE device=?",
+                            (sealed_profile(ident), datetime.now(timezone.utc).isoformat(timespec="seconds"), ident["device"]))
         return state
 
     def connect(self):
@@ -221,8 +226,12 @@ class Sync:
             self.db.execute("BEGIN IMMEDIATE")
             if journal.conflicts(self.db):
                 raise ValueError("Resolve competing versions before disconnecting so each choice is retained.")
-            for table in ("sync_profile", "sync_edges", "sync_ops"):
-                self.db.execute("DELETE FROM " + table)
+            if journal.selected_scope(self.db) is None and self.db.execute("SELECT 1 FROM sync_profile").fetchone():
+                # Retain the binding for an upgraded 1.3.0 installation even if it has
+                # stayed offline since the upgrade. Failure to unlock rolls back disconnect.
+                phase, ident = self.profile()
+                journal.bind_scope(self.db, ident["anchor"], phase == "active")
+            self.db.execute("DELETE FROM sync_profile")
 
     def _pull(self, ident):
         while True:
@@ -257,7 +266,12 @@ class Sync:
             batch = []
             size = 0
             epoch = ident["state"]["epoch"]
-            rows = self.db.execute("SELECT * FROM sync_ops WHERE pending=1 ORDER BY rowid LIMIT 24").fetchall()
+            with self.db:
+                # A different application window can disconnect or switch calendars
+                # between pull and push. Read identity and outbox in one SQLite snapshot.
+                self.db.execute("BEGIN")
+                self._check(ident)
+                rows = self.db.execute("SELECT * FROM sync_ops WHERE pending=1 ORDER BY rowid LIMIT 24").fetchall()
             for row in rows:
                 content = {"entity": row["entity"], "parents": json.loads(row["parents"]), "value": json.loads(row["payload"])}
                 box = crypto.encrypt(ident["calendar"], ident["keys"], epoch, row["op"], content)

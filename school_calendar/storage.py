@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, time
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from . import sync_journal as journal
 
 
 APPLICATION_ID = 0x5343414C  # SCAL
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class StoreError(Exception):
@@ -62,12 +62,16 @@ class Store:
                 raise StoreError("The calendar contains a broken subject reference.")
             if (app_id, version) == (APPLICATION_ID, SCHEMA_VERSION):
                 return
-            if app_id == APPLICATION_ID and version in (1, 2):
+            if app_id == APPLICATION_ID and version in (1, 2, 3):
                 if version == 1:
                     self._add_schedule_schema()
-                self._add_sync_schema()
-                # Read every migrated row before committing any schema change.
+                if version < 3:
+                    journal.create_schema(self.db)
+                self._add_history_schema()
+                # Validate every local row before using any of them for a sync repair.
                 self._snapshot()
+                if version == 3 and self.db.execute("SELECT 1 FROM sync_profile").fetchone():
+                    journal.repair_legacy_subject_links(self)
                 return
             if existed or app_id or version:
                 raise StoreError("This file is damaged, unrecognised, or belongs to another calendar version.")
@@ -87,14 +91,15 @@ class Store:
             """)
             self.db.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             self._add_schedule_schema()
-            self._add_sync_schema()
+            journal.create_schema(self.db)
+            self._add_history_schema()
 
     def _add_schedule_schema(self) -> None:
         self.db.execute("ALTER TABLE entries ADD COLUMN end_at TEXT CHECK (end_at IS NULL OR (at IS NOT NULL AND end_at > at))")
         self.db.execute("CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
 
-    def _add_sync_schema(self) -> None:
-        journal.create_schema(self.db)
+    def _add_history_schema(self) -> None:
+        journal.create_history_schema(self.db)
         self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def read(self) -> Snapshot:
@@ -105,25 +110,28 @@ class Store:
         except sqlite3.Error as exc:
             raise StoreError(f"Could not read the saved calendar. {exc}") from exc
 
+    def stored_entries(self, identifier=None):
+        """Read the saved association even when that subject is hidden in the UI."""
+        query = "SELECT e.*,s.name AS subject FROM entries e LEFT JOIN subjects s ON s.key=e.subject_key"
+        with closing(self.db.execute(query + (" WHERE e.id=?" if identifier is not None else ""),
+                                     (identifier,) if identifier is not None else ())) as rows:
+            for row in rows:
+                yield Entry(
+                    id=row["id"], title=row["title"], day=date.fromisoformat(row["day"]),
+                    at=time.fromisoformat(row["at"]) if row["at"] is not None else None,
+                    end_at=time.fromisoformat(row["end_at"]) if row["end_at"] is not None else None,
+                    subject=row["subject"] or "", kind=row["kind"], custom_kind=row["custom_kind"],
+                    notes=row["notes"], completed=bool(row["completed"]), revision=row["revision"],
+                ).cleaned()
+
     def _snapshot(self) -> Snapshot:
         try:
             subjects = self.db.execute("SELECT key,name,colour,hidden FROM subjects ORDER BY name COLLATE NOCASE").fetchall()
-            names = {row["key"]: "" if row["hidden"] else row["name"] for row in subjects}
             colours = {row["name"]: row["colour"] for row in subjects if not row["hidden"]}
-            if any(not re.fullmatch(r"#[0-9a-fA-F]{6}", colour) for colour in colours.values()):
+            if any(not re.fullmatch(r"#[0-9a-fA-F]{6}", row["colour"]) for row in subjects):
                 raise ValueError("Invalid subject colour")
-            entries = []
-            with closing(self.db.execute("SELECT * FROM entries")) as rows:
-                for row in rows:
-                    entry = Entry(
-                        id=row["id"], title=row["title"], day=date.fromisoformat(row["day"]),
-                        at=time.fromisoformat(row["at"]) if row["at"] is not None else None,
-                        end_at=time.fromisoformat(row["end_at"]) if row["end_at"] is not None else None,
-                        subject=names[row["subject_key"]] if row["subject_key"] is not None else "",
-                        kind=row["kind"], custom_kind=row["custom_kind"], notes=row["notes"],
-                        completed=bool(row["completed"]), revision=row["revision"],
-                    )
-                    entries.append(entry.cleaned())
+            entries = (replace(entry, subject="") if entry.subject and entry.subject not in colours else entry
+                       for entry in self.stored_entries())
             pref = self.db.execute("SELECT value FROM preferences WHERE key='calendar_view'").fetchone()
             return Snapshot(tuple(sorted(entries, key=order_key)), colours, "week" if pref and pref[0] == "week" else "month")
         except (sqlite3.Error, ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
@@ -202,10 +210,16 @@ class Store:
             entry = entry.cleaned()
             with self.db:
                 self.db.execute("BEGIN IMMEDIATE")
+                subject_key = self._subject_key(entry.subject)
+                if subject_key is None and entry.revision:
+                    # The editor and completion action see a blank label for a hidden subject.
+                    hidden = self.db.execute("""SELECT e.subject_key FROM entries e JOIN subjects s ON s.key=e.subject_key
+                                                WHERE e.id=? AND s.hidden=1""", (entry.id,)).fetchone()
+                    subject_key = hidden[0] if hidden else None
                 values = (
                     entry.title, entry.day.isoformat(), entry.at.isoformat(timespec="minutes") if entry.at else None,
                     entry.end_at.isoformat(timespec="minutes") if entry.end_at else None,
-                    self._subject_key(entry.subject), entry.kind, entry.custom_kind, entry.notes,
+                    subject_key, entry.kind, entry.custom_kind, entry.notes,
                     int(entry.completed), entry.id,
                 )
                 if entry.revision == 0:
@@ -219,7 +233,7 @@ class Store:
                         notes=?, completed=?, revision=revision+1 WHERE id=? AND revision=?
                     """, (*values, entry.revision))
                     self._check_changed(result)
-                journal.record(self.db, "e:" + entry.id, journal.entry_value(entry))
+                journal.record(self.db, "e:" + entry.id, journal.entry_value(next(self.stored_entries(entry.id))))
         except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not save this entry. {exc}") from exc
 

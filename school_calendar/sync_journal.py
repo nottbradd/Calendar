@@ -24,6 +24,81 @@ def create_schema(db):
         db.execute(sql)
 
 
+def create_history_schema(db):
+    # The anchor is a public commitment to the calendar ID and its original key.
+    # No device credential or decryption key is needed to keep editing offline.
+    for sql in (
+        """CREATE TABLE sync_scopes (anchor TEXT PRIMARY KEY, selected INTEGER NOT NULL CHECK(selected IN (0,1)),
+                                     verified INTEGER NOT NULL CHECK(verified IN (0,1)))""",
+        "CREATE UNIQUE INDEX sync_selected ON sync_scopes(selected) WHERE selected=1",
+        """CREATE TABLE sync_parked_ops (anchor TEXT NOT NULL REFERENCES sync_scopes(anchor),
+                    op TEXT NOT NULL, entity TEXT NOT NULL, parents TEXT NOT NULL, payload TEXT NOT NULL,
+                    pending INTEGER NOT NULL, PRIMARY KEY(anchor,op))""",
+        # IDs can legitimately exist in two calendars. Keep a local revision floor so a
+        # stale editor cannot save or delete a different calendar's newly projected row.
+        """CREATE TRIGGER retire_entry_revision BEFORE DELETE ON entries
+           WHEN EXISTS (SELECT 1 FROM sync_scopes) OR EXISTS (SELECT 1 FROM sync_profile)
+           BEGIN INSERT INTO preferences(key,value) VALUES ('retired_entry_revision',OLD.revision)
+                 ON CONFLICT(key) DO UPDATE SET value=OLD.revision WHERE CAST(value AS INTEGER)<OLD.revision; END""",
+        """CREATE TRIGGER start_entry_revision AFTER INSERT ON entries
+           WHEN NEW.revision <= (SELECT CAST(value AS INTEGER) FROM preferences WHERE key='retired_entry_revision')
+           BEGIN UPDATE entries SET revision=(SELECT CAST(value AS INTEGER)+1 FROM preferences
+                 WHERE key='retired_entry_revision') WHERE id=NEW.id; END""",
+    ):
+        db.execute(sql)
+
+
+def selected_scope(db):
+    return db.execute("SELECT anchor,verified FROM sync_scopes WHERE selected=1").fetchone()
+
+
+def bind_scope(db, anchor, verified):
+    db.execute("INSERT INTO sync_scopes(anchor,selected,verified) VALUES (?,1,?)", (anchor, verified))
+
+
+def activate_scope(store, anchor):
+    """Select the verified calendar's journal and projection, in the activation transaction."""
+    db = store.db
+    previous = selected_scope(db)
+    if previous is None:  # A 1.3.0 profile: its existing journal already belongs to this identity.
+        bind_scope(db, anchor, True)
+        return
+    if previous["anchor"] == anchor:
+        if not previous["verified"]:
+            db.execute("UPDATE sync_scopes SET verified=1 WHERE anchor=?", (anchor,))
+        return
+
+    # Only the selected calendar's operations may appear in the outbox. Preserve their
+    # insertion order (parents before locally created children) and stable IDs on every switch.
+    columns = "op,entity,parents,payload,pending"
+    db.execute(f"INSERT INTO sync_parked_ops(anchor,{columns}) SELECT ?,{columns} FROM sync_ops ORDER BY rowid",
+               (previous["anchor"],))
+    db.execute("DELETE FROM sync_edges")
+    db.execute("DELETE FROM sync_ops")
+    db.execute("UPDATE sync_scopes SET selected=0 WHERE selected=1")
+    returning = db.execute("UPDATE sync_scopes SET selected=1,verified=1 WHERE anchor=?", (anchor,)).rowcount
+    if not returning:
+        bind_scope(db, anchor, True)
+        if not previous["verified"]:
+            # An initial, unsuccessful enrollment never sent data. The original standalone
+            # entries still get their first import; its provisional journal stays parked.
+            seed(store)
+            return
+    else:
+        db.execute(f"INSERT INTO sync_ops({columns}) SELECT {columns} FROM sync_parked_ops WHERE anchor=? ORDER BY rowid",
+                   (anchor,))
+        db.execute("""INSERT INTO sync_edges(entity,parent,child)
+                      SELECT o.entity,p.value,o.op FROM sync_ops o, json_each(o.parents) p""")
+        db.execute("DELETE FROM sync_parked_ops WHERE anchor=?", (anchor,))
+
+    # Rebuild from this calendar's heads, including unsent deletions. A replayed operation
+    # is a duplicate and will not project again. Device-local preferences are independent.
+    db.execute("DELETE FROM entries")
+    db.execute("DELETE FROM subjects")
+    for entity, in db.execute("SELECT DISTINCT entity FROM sync_ops ORDER BY entity DESC"):
+        project(db, entity)  # s: subjects before e: entries
+
+
 def entry_value(entry):
     return dict(title=entry.title, day=entry.day.isoformat(), subject=entry.subject,
                 kind=entry.kind, at=entry.at.isoformat(timespec="minutes") if entry.at else None,
@@ -85,7 +160,7 @@ def local_version(db, entity, versions, value):
 
 
 def record(db, entity, payload):
-    if not db.execute("SELECT 1 FROM sync_profile").fetchone():
+    if not selected_scope(db) and not db.execute("SELECT 1 FROM sync_profile").fetchone():
         return
     versions = heads(db, entity)
     if len({r["payload"] for r in versions}) > 1:
@@ -95,12 +170,34 @@ def record(db, entity, payload):
     local_version(db, entity, versions, payload)
 
 
+def seed_subject(db, row):
+    entity = "s:" + row["key"]
+    record(db, entity, {"name": row["name"], "colour": row["colour"]})
+    if row["hidden"]:
+        record(db, entity, None)
+
+
 def seed(store):
-    snapshot = store._snapshot()
-    for name, colour in snapshot.colours.items():
-        record(store.db, "s:" + name.casefold(), {"name": name, "colour": colour})
-    for entry in snapshot.entries:
+    for subject in store.db.execute("SELECT key,name,colour,hidden FROM subjects ORDER BY key"):
+        seed_subject(store.db, subject)
+    for entry in store.stored_entries():
         record(store.db, "e:" + entry.id, entry_value(entry))
+
+
+def repair_legacy_subject_links(store):
+    """Repair only associations still provable from the 1.3.0 local database."""
+    db = store.db
+    for subject in db.execute("SELECT key,name,colour,hidden FROM subjects WHERE hidden=1"):
+        if not heads(db, "s:" + subject["key"]):
+            seed_subject(db, subject)
+    for entry in store.stored_entries():
+        if not entry.subject:
+            continue
+        entity, value = "e:" + entry.id, entry_value(entry)
+        versions = heads(db, entity)
+        # Do not overwrite a competing edit or guess a missing local foreign key.
+        if versions and all(r["payload"] == packed({**value, "subject": ""}) for r in versions):
+            local_version(db, entity, versions, value)
 
 
 def validate(entity, value):
@@ -121,12 +218,24 @@ def validate(entity, value):
 
 def project(db, entity):
     # An unresolved edit/delete conflict stays deleted until explicitly restored.
-    winner = json.loads(heads(db, entity)[0]["payload"])
+    version = heads(db, entity)[0]
+    winner = json.loads(version["payload"])
     identifier = entity[2:]
     if entity.startswith("s:"):
         if winner is None:
-            db.execute("""INSERT INTO subjects(key,name,colour,hidden) VALUES (?,?,?,1)
-                          ON CONFLICT(key) DO UPDATE SET hidden=1""", (identifier, identifier, NEUTRAL_COLOUR))
+            # A hidden seed is a known name/colour followed by a removal. Keep its
+            # metadata even if the child arrived before its parent or we rebuilt the view.
+            prior = db.execute("""SELECT p.payload FROM sync_edges e JOIN sync_ops p ON p.op=e.parent
+                                  AND p.entity=e.entity WHERE e.entity=? AND e.child=? AND p.payload!='null'
+                                  ORDER BY p.op LIMIT 1""", (entity, version["op"])).fetchone()
+            if prior:
+                info = json.loads(prior["payload"])
+                db.execute("""INSERT INTO subjects(key,name,colour,hidden) VALUES (?,?,?,1)
+                              ON CONFLICT(key) DO UPDATE SET name=excluded.name,colour=excluded.colour,hidden=1""",
+                           (identifier, info["name"], info["colour"]))
+            else:
+                db.execute("""INSERT INTO subjects(key,name,colour,hidden) VALUES (?,?,?,1)
+                              ON CONFLICT(key) DO UPDATE SET hidden=1""", (identifier, identifier, NEUTRAL_COLOUR))
         else:
             db.execute("""INSERT INTO subjects(key,name,colour) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET
                           name=excluded.name, colour=excluded.colour, hidden=0""", (identifier, winner["name"], winner["colour"]))

@@ -85,12 +85,22 @@ def pictures(store, folder):
     app.processEvents()
 
 
-def packaged_pair(exe, folder, a, b, entry):
-    # Both real executables start at their normal entry point and read separate LocalAppData roots.
+def packaged_pair(executables, folder, a, b, recovery):
+    removed = Entry("Packaged deletion", date(2031, 4, 22))
+    a.store.save(removed)
+    a.run()
+    b.run()
+    assert removed.id in snapshot(b.store)[0]
+    a.store.delete(next(e for e in a.store.read().entries if e.id == removed.id))
+    tombstone, = journal.heads(a.db, "e:" + removed.id)
+    a.disconnect()
+    entry = Entry("Packaged offline sample", date(2031, 4, 22))
     a.store.save(entry)
+    a.begin("recover", recovery)
+    # Fresh executable processes perform the recovery, upload and download from separate LocalAppData roots.
     processes = []
     try:
-        for name in ("A", "B"):
+        for name, exe in zip(("A", "B"), executables, strict=True):
             env = dict(os.environ, LOCALAPPDATA=str(folder / name))
             env.pop("QT_QPA_PLATFORM", None)
             processes.append(subprocess.Popen([str(exe)], env=env, cwd=exe.parent))
@@ -103,8 +113,11 @@ def packaged_pair(exe, folder, a, b, entry):
         while monotonic() < deadline:
             if any(p.poll() is not None for p in processes):
                 raise RuntimeError("The packaged app exited unexpectedly.")
-            if summary(a.db)["pending"] == 0 and any(e.id == entry.id for e in b.store.read().entries):
-                print("Packaged Windows apps independently uploaded and downloaded the sample.")
+            entries = snapshot(b.store)[0]
+            if summary(a.db)["pending"] == 0 and entry.id in entries and removed.id not in entries:
+                assert journal.heads(b.db, "e:" + removed.id)[0]["op"] == tombstone["op"]
+                assert not journal.conflicts(a.db) and not journal.conflicts(b.db)
+                print("Packaged Windows apps recovered and transferred the original unsent deletion and an offline entry.")
                 return
             sleep(.5)
         raise RuntimeError("The packaged profiles did not converge before the deadline.")
@@ -239,7 +252,7 @@ def trial(args, folder, owned):
         assert not journal.conflicts(b.db) and snapshot(a.store) == snapshot(b.store)
         print("Timetables, colours, notes, completion, offline edits, lost reply, restart and conflict choices passed.")
         if args.packaged:
-            packaged_pair(args.packaged.resolve(), folder, a, b, Entry("Packaged sample", date(2031, 4, 22)))
+            packaged_pair([args.packaged.resolve(), (args.peer_packaged or args.packaged).resolve()], folder, a, b, recovery)
         survivor = profile("Survivor")
         survivor.begin("recover", recovery)
         survivor.run()
@@ -313,9 +326,12 @@ if __name__ == "__main__":
     parser.add_argument("--audit", action="store_true", help="Inspect, then remove only calendars generated in this run with Wrangler.")
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument("--packaged", type=Path, help="Also run two isolated copies of a development Windows executable.")
+    parser.add_argument("--peer-packaged", type=Path, help="Use a different Windows build on the receiving installation.")
     args = parser.parse_args()
     if args.packaged and args.base != SERVICE:
         parser.error("The packaged desktop app uses the deployed development endpoint.")
+    if args.peer_packaged and not args.packaged:
+        parser.error("--peer-packaged requires --packaged.")
     owned = []
     try:
         with TemporaryDirectory(prefix="calender-sync-trial-") as tmp:

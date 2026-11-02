@@ -4,21 +4,25 @@ The Windows desktop app is usable offline. Sync is opt-in under **Settings → S
 
 ## Trial on two Windows PCs
 
-1. Use the same 1.3.0 prototype build on both PCs. You can build it from the repository with the [Windows build instructions](../README.md#verify-and-build). For a disposable trial, run the following in PowerShell on **each** PC. Use a new folder name for each trial and substitute the path to your prototype executable.
+1. Use the same **1.3.1** prototype build on both PCs. You can build it from the repository with the [Windows build instructions](../README.md#verify-and-build). For a disposable trial, run the following in PowerShell on **each** PC. Use a new folder name for each trial, reuse that folder on restarts, and substitute the path to your prototype executable.
 
    ~~~powershell
    $env:LOCALAPPDATA = Join-Path $env:TEMP 'Calender-Trial-01'
    & 'C:\path\to\Calender.exe'
    ~~~
 
-2. On PC A open **Settings → Sync → Create calendar**. Save the private recovery key offline and confirm that you saved it. Choose **Invite device**, select the invitation and copy it. Share it privately with PC B. It expires in ten minutes. Issuing another invitation replaces the previous one.
+2. Before linking, add a sample assessment with a subject on A, remove the subject in Settings, and leave B empty. On A open **Settings → Sync → Create calendar**. Save the private recovery key offline and confirm that you saved it. Choose **Invite device**, select the invitation and copy it. Share it privately with PC B. It expires in ten minutes. Issuing another invitation replaces the previous one.
 3. On PC B open **Settings → Sync → Join calendar** and paste the invitation. Read the 12-character verification code shown on B to the person at A over a trusted channel. On A select **Sync now → Approve request** and enter B’s code. Select **Sync now** on B. Both PCs should list two devices.
-4. Add a sample assessment on A. Select **Sync now** on A and then B. Disconnect B from the network, edit the same assessment independently on both PCs, reconnect and sync both. **Review conflicts** lets you compare the versions and explicitly choose one. Sync again to send the resolution. Repeat with a deletion or subject-colour change.
-5. On A select B in **Paired devices** and choose **Revoke device**. A rotates the key. B’s next check should report access denied. On a replacement PC choose **Recover** and enter the offline key. If every prior PC was lost, select the option to revoke all of them and rotate the key during recovery.
+4. Verify the subject is hidden on both PCs. Add the same subject again on A, choose a colour, and select **Sync now** on A and then B. The assessment should display the same label and colour on both.
+5. Take A offline, delete that assessment, then choose **Settings → Sync → Disconnect** while still offline. Close Calender. Reopen the same profile, reconnect the network, choose **Recover** with the saved key, and sync A then B. The assessment must stay deleted on both PCs, with no conflict or waiting upload.
+6. Add another sample assessment and sync both PCs. Take B offline, edit the same assessment independently on both, reconnect B and sync both. Use **Review conflicts** to compare both versions and choose one; sync the resolution.
+7. On A select B in **Paired devices** and choose **Revoke device**. A rotates the key. B’s next check should report access denied. On a replacement PC choose **Recover** and enter the offline key. If every prior PC was lost, select the option to revoke all of them and rotate the key during recovery.
 
-Linking imports the entries and visible subjects already on each PC. Entries keep their original IDs. Different IDs survive as separate entries, identical versions of one ID coalesce, and divergent versions are offered for resolution. Subjects are matched by their case-folded name. Month/Week preferences stay local. Removing a subject hides its label while retaining its entries. Explicitly adding the same subject again restores its label.
+First-time linking imports the standalone entries and subjects already on the PC. Entries keep their original IDs. Different IDs survive as separate entries, identical versions of one ID coalesce, and divergent versions are offered for resolution. The initial upload includes removed subjects' saved names and colours, their removal records, and each assessment’s original association. Month/Week preferences stay local.
 
-**Disconnect** forgets the local credentials and queue and retains the visible calendar. Resolve conflicts before disconnecting. Use **Revoke device** on a different paired PC to remove that credential from the server. Back up a closed database before trying the prototype on an existing calendar. Schema 3 is readable by this prototype. For a second PC, start with its own database and join. Copying a linked profile can duplicate its device identity.
+**Disconnect** forgets the local credentials and keeps the calendar editable. The PC retains pending edits, deletions, and their parent versions for the original calendar, including edits made while disconnected. Rejoining or recovering the same calendar resumes this history. Successfully linking a different calendar opens its own entries and queue; returning to the first restores its history. A failed link leaves the open calendar in place. Resolve conflicts before disconnecting. Use **Revoke device** on another paired PC to remove the old credential from the server.
+
+Back up a closed database before upgrading. Version 1.3.1 upgrades the 1.3.0 database in place and repairs a previously blank sync association when the local entry still identifies its subject. A deletion already discarded by disconnecting under 1.3.0 cannot be reconstructed. On a second PC, start with its own database and join; copying a linked database can duplicate the device identity.
 
 ![Sync settings with two disposable PCs and a conflict](../docs/sync-settings.png)
 
@@ -37,7 +41,7 @@ Linking imports the entries and visible subjects already on each PC. Entries kee
 
 A local edit, its stable operation ID and its parent versions are recorded in one SQLite transaction. Applying a downloaded page and advancing its cursor also share a transaction. The server indexes the feed by calendar and sequence, deduplicates by calendar and operation ID and checks membership generation inside the data transaction. A lost response can be retried. Downloaded operations do not enter the upload queue.
 
-The current versions of an object are the operations that no known child supersedes. Concurrent versions with different values remain available until a resolution references all current versions. A concurrent deletion wins the ordinary calendar display while keeping the competing edit in the conflict screen. Tombstones and causal history are retained, including when operations arrive out of order.
+The current versions of an object are the operations that no known child supersedes. Concurrent versions with different values remain available until a resolution references all current versions. A concurrent deletion wins the ordinary calendar display while keeping the competing edit in the conflict screen. Disconnect retains this history under the commitment to the calendar ID and its first encryption key. A fresh device credential can replay the feed on recovery: old operations are recognised by ID, and the original pending deletion can then upload with its original parents.
 
 An idle PC makes one incremental request roughly every 90–100 seconds. Local edits are debounced, linking polls about every 12–15 seconds, and transient errors back off to about 15 minutes. **Sync now** makes an immediate check. The UI counts unacknowledged changes and records the last successful server contact. Uploads are acknowledged by stable operation ID. Transfers use pages of 24 changes and bounded request bodies. An individual change above roughly 512 KiB of serialised plaintext stays local until shortened. Other changes can still upload. The prototype supports 12 normal paired devices plus a recovery slot. History compaction, recovery-key replacement, and an independent security review remain future work.
 
@@ -69,18 +73,26 @@ npx wrangler d1 migrations apply DB --remote
 npm run deploy
 ~~~
 
-For the deployed trial, run the log check in one terminal and the following trial in another. The log check filters on the disposable trial header and inspects events in memory. The optional packaged check starts two executable instances with isolated local profiles.
+To replay the three regression cases against the deployed development Worker, set the following variables in a separate shell. The tests use fresh calendars, clean them up through Wrangler, and start a new Windows process for the restart-and-recovery case.
+
+~~~powershell
+$env:CALENDER_LOCAL_UI_TRIAL = '1'
+$env:CALENDER_REGRESSION_BASE = 'https://calender-sync-dev.nottbradd.workers.dev'
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_sync_regressions.py -v
+~~~
+
+For the full deployed trial, run the log check in one terminal and the following trial in another. The log check filters on the disposable trial header and inspects events in memory. The optional packaged check starts two executable instances with isolated local profiles. Omit `--peer-packaged` to use the same build twice.
 
 ~~~powershell
 .\.venv\Scripts\python.exe scripts/check_sync_trace.py
 # In a second terminal at the repository root
-.\.venv\Scripts\python.exe scripts/verify_sync.py --base https://calender-sync-dev.nottbradd.workers.dev --audit --packaged .\dist\installer-runtime\Calender\Calender.exe
+.\.venv\Scripts\python.exe scripts/verify_sync.py --base https://calender-sync-dev.nottbradd.workers.dev --audit --packaged .\dist\Calender.exe --peer-packaged .\dist\installer-runtime\Calender\Calender.exe
 ~~~
 
-## Verification on 2 November 2026
+## 1.3.1 verification · 2 November 2026
 
-The 28 desktop tests and 6 Worker tests passed, including real Qt pairing controls, schema migration, transaction rollback, fingerprint and roster checks, invitation throttling and byte-bounded pagination. The full workflow ran against local Wrangler and the deployed Worker using disposable profiles on one Windows PC. A trial on two physical machines is still outstanding.
+All 33 desktop tests and six Worker tests passed, including the Qt pairing test against local Wrangler. The regression cases also passed against the deployed development Worker: recovery in a fresh Windows process uploaded the original deletion, a different calendar with the same entry ID received zero uploads, and both installations restored the same subject and colour. An additional upgrade check used a database created by commit `902b224`, with both an unsent deletion and a hidden subject.
 
-The deployed harness made 93 requests, sent 14,749 bytes of JSON and received 59,103 bytes of successful JSON responses. The audited feed contained 18 distinct encrypted operations. An idle check took one request. These figures exclude HTTP headers, Wrangler management calls and the separate packaged processes. D1 and matching live push/pull traces were checked for the sample plaintext and credentials. The remote trial calendars and their changes were removed after verification.
+The portable executable recovered a disconnected profile and sent its offline entry and deletion to the installer runtime. The installer passed install, launch, save, reinstall, shortcut, uninstall and database-preservation checks. Both builds were tested on **one Windows PC with isolated profiles**. The next milestone is the [trial on two physical PCs](#trial-on-two-windows-pcs).
 
-Two packaged instances exchanged an entry using isolated profiles. Both the installer runtime and portable executable were exercised. The Windows installer also passed install, launch, reinstall, uninstall, shortcut and database-preservation checks.
+The full deployed trial harness made 97 requests, sent 15,687 bytes of JSON and received 63,866 bytes of successful JSON responses, excluding headers, Wrangler calls and the two executable processes. The feed contained 20 distinct encrypted operations; an idle check took one request. The D1 audit and filtered live push/pull traces found no sample plaintext or exposed credentials. The disposable remote calendars and their changes were removed.

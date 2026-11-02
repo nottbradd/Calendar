@@ -10,7 +10,7 @@ from uuid import uuid4
 from nacl.exceptions import CryptoError
 from nacl.public import PrivateKey
 from school_calendar import sync_crypto as crypto, sync_journal as journal
-from school_calendar.model import Entry
+from school_calendar.model import Entry, SUBJECT_COLOURS
 from school_calendar.storage import APPLICATION_ID, SCHEMA_VERSION, Store, StoreError
 from school_calendar.sync_client import Sync, summary
 
@@ -70,7 +70,9 @@ class SyncStorageTests(unittest.TestCase):
             old.save(Entry("Existing sample", date.today(), id="older-id"))
             old.set_view("week")
             with old.db:
-                for table in ("sync_edges", "sync_ops", "sync_profile"):
+                old.db.execute("DROP TRIGGER retire_entry_revision")
+                old.db.execute("DROP TRIGGER start_entry_revision")
+                for table in ("sync_parked_ops", "sync_scopes", "sync_edges", "sync_ops", "sync_profile"):
                     old.db.execute("DROP TABLE " + table)
                 old.db.execute("ALTER TABLE subjects DROP COLUMN hidden")
                 old.db.execute("PRAGMA user_version=2")
@@ -80,6 +82,73 @@ class SyncStorageTests(unittest.TestCase):
             self.assertEqual(reopened.read().entries[0].id, "older-id")
             self.assertEqual(reopened.read().view, "week")
             self.assertEqual(summary(reopened.db)["phase"], "disabled")
+
+    def test_v3_linked_upgrade_keeps_credentials_and_tombstone_and_repairs_known_subject(self):
+        path, kit = Path(self.temp.name) / "linked-v3.sqlite3", crypto.kit("CALR1")
+        with closing(Store(path)) as old:
+            art = Entry("Portfolio", date.today(), "Studio Art")
+            old.save(art)
+            old.remove_subject(art.subject)
+            engine = Sync(old)
+            engine.begin("create", kit)
+            _, ident = engine.profile()
+            setup = ident["setup"]
+            engine._state(ident, {"epoch": 1, "generation": 1, "box": setup["box"], "pending": None,
+                                  "members": [{"id": ident["device"], "pub": ident["pub"], "tag": setup["tag"]}],
+                                  "recoveryPub": setup["recoveryPub"], "recoveryTag": setup["recoveryTag"]})
+            old.save(Entry("Remove me", date.today(), id="removed"))
+            with old.db:
+                # Recreate the 1.3.0 initial feed: the hidden subject is absent and
+                # only its presentation label went into the uploaded entry.
+                old.db.execute("DELETE FROM sync_edges WHERE entity='s:studio art'")
+                old.db.execute("DELETE FROM sync_ops WHERE entity='s:studio art'")
+                old.db.execute("UPDATE sync_ops SET payload=? WHERE entity=?",
+                               (journal.packed(journal.entry_value(replace(art, subject=""))), "e:" + art.id))
+                old.db.execute("UPDATE sync_ops SET pending=0")
+            old.delete(next(e for e in old.read().entries if e.id == "removed"))
+            old_head, = journal.heads(old.db, "e:removed")
+            protected = old.db.execute("SELECT secret FROM sync_profile").fetchone()[0]
+            with old.db:
+                old.db.execute("DROP TRIGGER retire_entry_revision")
+                old.db.execute("DROP TRIGGER start_entry_revision")
+                old.db.execute("DELETE FROM preferences WHERE key='retired_entry_revision'")
+                old.db.execute("DROP TABLE sync_parked_ops")
+                old.db.execute("DROP TABLE sync_scopes")
+                old.db.execute("PRAGMA user_version=3")
+        with closing(Store(path)) as upgraded:
+            self.assertEqual(upgraded.db.execute("SELECT secret FROM sync_profile").fetchone()[0], protected)
+            self.assertEqual(Sync(upgraded).profile()[0], "active")
+            self.assertEqual(dict(journal.heads(upgraded.db, "e:removed")[0]), dict(old_head))
+            repaired, = journal.heads(upgraded.db, "e:" + art.id)
+            self.assertEqual(json.loads(repaired["payload"])["subject"], art.subject)
+            self.assertEqual((repaired["pending"], len(json.loads(repaired["parents"]))), (1, 1))
+            self.assertEqual(journal.heads(upgraded.db, "s:studio art")[0]["payload"], "null")
+            Sync(upgraded).disconnect()  # Before contacting the Worker with the upgraded database.
+            self.assertFalse(upgraded.db.execute("SELECT 1 FROM sync_profile").fetchone())
+        with closing(Store(path)) as reopened:
+            Sync(reopened).begin("recover", kit)
+            self.assertEqual(dict(journal.heads(reopened.db, "e:removed")[0]), dict(old_head))
+            self.assertEqual(reopened.read().entries[0].subject, "")
+
+    def test_hidden_seed_and_edit_replay_out_of_order_keep_the_canonical_subject(self):
+        name, colour = "Studio Art", SUBJECT_COLOURS[2]
+        self.store.add_subject(name, colour)
+        self.store.save(Entry("Portfolio", date.today(), "STUDIO ART"))
+        self.store.remove_subject(name)
+        Sync(self.store).begin("create", crypto.kit("CALR1"))
+        hidden, = self.store.read().entries
+        self.store.save(replace(hidden, completed=True))
+        with closing(Store(Path(self.temp.name) / "peer.sqlite3")) as peer:
+            with peer.db:
+                for row in self.store.db.execute("SELECT * FROM sync_ops ORDER BY rowid DESC"):
+                    journal.receive(peer.db, row["op"], {"entity": row["entity"], "parents": json.loads(row["parents"]),
+                                                        "value": json.loads(row["payload"])})
+            self.assertEqual(peer.read().colours, {})
+            self.assertTrue(peer.read().entries[0].completed)
+            self.assertEqual(peer.read().entries[0].subject, "")
+            self.assertEqual(tuple(peer.db.execute("SELECT name,colour,hidden FROM subjects").fetchone()),
+                             (name, colour, 1))
+            self.assertEqual(next(peer.stored_entries()).subject, name)
 
     def test_oversized_local_draft_can_be_shortened_without_blocking_other_items(self):
         Sync(self.store).begin("create", crypto.kit("CALR1"))
