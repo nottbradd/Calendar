@@ -63,6 +63,10 @@ Calender opens the original database at **%LOCALAPPDATA%\SchoolCalendar\calendar
 
 To back up or move a calendar, close every Calender window and copy the database file. To restore it, close the app, keep a copy of your current database, and put the backup at the path above. If the app cannot read a file, it reports the error and preserves the file. A failed save leaves the editor open with your values.
 
+## Sync prototype
+
+The desktop app keeps calendar entries on this PC. A separate development Worker exposes a read-only D1 health check. [Backend setup and verification](backend/README.md)
+
 ## Appearance
 
 Frosted glass is the default for the calendar, agenda, Settings and entry dialogs. On Windows 11 build 22621 or later, Desktop Acrylic lets colours from other windows or the wallpaper show through the active window with system blur. The panels and fields tint this material while text stays sharp. Windows can use a solid material when transparency is off or Battery Saver is active. Systems without the backdrop API use a painted gradient and translucent internal layers. [Windows backdrop support](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) · [Acrylic system behaviour](https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic)

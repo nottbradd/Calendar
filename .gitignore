@@ -37,3 +37,9 @@ Desktop.ini
 *.pfx
 credentials*.json
 secrets*.json
+
+# Cloudflare development tools, local D1 state, and Worker secrets
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
