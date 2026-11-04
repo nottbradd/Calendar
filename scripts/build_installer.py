@@ -10,7 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from school_calendar import __version__
+from school_calendar import APP_NAME, __version__
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     compiler = Path(compiler).resolve()
     subprocess.run([sys.executable, str(ROOT / "scripts/build_windows.py"), "--installer-runtime"], check=True)
 
-    bundle = ROOT / "dist/installer-runtime/Calender"
+    bundle = ROOT / "dist/installer-runtime" / APP_NAME
     notices = bundle / "licenses"
     shutil.copytree(ROOT / "installer/licenses", notices, dirs_exist_ok=True)
     pyinstaller = distribution("pyinstaller")
@@ -42,8 +42,8 @@ def main():
     release = ROOT / "dist/release"
     release.mkdir(parents=True, exist_ok=True)
     subprocess.run([str(compiler), "/Qp", f"/DAppVersion={__version__}", f"/DBundleDir={bundle}",
-                    f"/DReleaseDir={release}", str(ROOT / "installer/Calender.iss")], check=True)
-    setup = release / f"Calender-{__version__}-Setup.exe"
+                    f"/DReleaseDir={release}", str(ROOT / "installer/Calendar.iss")], check=True)
+    setup = release / f"{APP_NAME}-{__version__}-Setup.exe"
     with setup.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     (release / "SHA256SUMS.txt").write_text(f"{digest}  {setup.name}\n", encoding="ascii")

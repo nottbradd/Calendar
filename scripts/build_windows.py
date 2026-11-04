@@ -85,6 +85,7 @@ if __name__ == "__main__":
     PyInstaller.__main__.run([
         "--noconfirm", "--onedir" if options.installer_runtime else "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
         "--icon", str(ico), "--version-file", str(version_file), "--add-data", f"{ASSETS}:school_calendar/assets",
+        "--add-data", f"{ROOT / 'LICENSE'}:.",
         "--specpath", str(BUILD), "--workpath", str(work), "--distpath", str(destination),
         str(ROOT / "launch.pyw"),
     ])
