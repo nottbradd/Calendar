@@ -1,6 +1,8 @@
 # Assistant privacy, usage and billing
 
-In **Settings → Assistant**, enter an OpenAI API key from the project you intend to bill. Choose the project associated with your credit grant or complimentary usage offer. An organization may have several projects. Use the project selector in the OpenAI dashboard to check which one owns the key. [OpenAI project keys](https://platform.openai.com/api-keys) · [Credit grants](https://platform.openai.com/settings/organization/billing/credit-grants)
+**Settings → Assistant** offers two providers. **Hosted beta** uses the owner's dedicated service account and requires an invitation and explicit consent. Selected text, calendar details and submitted audio pass through the Calendar AI Worker to OpenAI. The beta requires input/output sharing disabled and enforces shared spending ceilings. The desktop applies reviewed calendar changes locally. [Hosted privacy, activation and metering](../backend/ai/README.md)
+
+In **Personal project key**, enter an OpenAI API key from the project you intend to bill. Choose the project associated with your credit grant or complimentary usage offer. An organization may have several projects. Use the project selector in the OpenAI dashboard to check which one owns the key. [OpenAI project keys](https://platform.openai.com/api-keys) · [Credit grants](https://platform.openai.com/settings/organization/billing/credit-grants)
 
 **Auto** uses `gpt-6-luna` for routine requests and `gpt-6.1-sol` for complex scheduling. You can select a model explicitly, including `gpt-5.4`. Voice input sends a recording to `gpt-transcribe`. Review the transcript in the composer before sending it to the text model. Model access depends on your project.
 
@@ -22,7 +24,7 @@ Standard text prices checked on 4 November 2026, in USD per million tokens, and 
 
 ## Verify a project with fictional samples
 
-Both live checks passed with fictional data on 4 November 2026.
+Both live checks passed in personal-key mode with fictional data on 4 November 2026.
 
 - **Function calling.** `gpt-6-luna` requested the fictional exam lookup and returned the date supplied by the tool. The API reported **344 tokens across two requests** (315 input and 29 output).
 - **Transcription.** `gpt-transcribe` correctly transcribed “Tuesday” from the 3.16-second synthetic recording. The API reported **4 seconds** of audio usage.

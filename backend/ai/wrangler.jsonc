@@ -1,0 +1,18 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "calendar-ai-beta",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "triggers": { "crons": ["17 3 * * *"] },
+  "d1_databases": [
+    {
+      "binding": "AI_DB",
+      "database_name": "calendar-ai-beta",
+      "database_id": "fd4082c6-225e-4289-8920-d515ea8617aa",
+      "migrations_dir": "migrations",
+    },
+  ],
+}

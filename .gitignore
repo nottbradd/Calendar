@@ -35,6 +35,7 @@ Desktop.ini
 *.pem
 *.key
 *.pfx
+*.dpapi
 credentials*.json
 secrets*.json
 

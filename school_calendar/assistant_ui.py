@@ -9,6 +9,7 @@ import wave
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import assistant_api as api, assistant_config as config
+from . import assistant_api as api, assistant_config as config, assistant_hosted as hosted
 from .assistant_calendar import CalendarTools, calendar_scope
 from .assistant_voice import Recorder
 from .appearance import button, label
@@ -35,6 +36,8 @@ def note(text):
 
 
 class AssistantSettings(PlannerDialog):
+    activation_finished = Signal(bool, str)
+
     def __init__(self, parent):
         super().__init__(parent, "Assistant settings")
         self.body.addWidget(label("Assistant settings", "heading"))
@@ -42,7 +45,14 @@ class AssistantSettings(PlannerDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         contents = QWidget()
-        form = QVBoxLayout(contents)
+        layout = QVBoxLayout(contents)
+        self.provider = QComboBox()
+        self.provider.addItems(["Personal project key", "Hosted beta"])
+        self.provider.setCurrentIndex(1 if hosted.provider() == "Hosted" else 0)
+        layout.addLayout(field("Assistant provider", self.provider))
+        self.personal = QWidget()
+        form = QVBoxLayout(self.personal)
+        layout.addWidget(self.personal)
         scroll.setWidget(contents)
         self.body.addWidget(scroll, 1)
         saved = config.options()
@@ -78,13 +88,84 @@ class AssistantSettings(PlannerDialog):
         )
         links.setOpenExternalLinks(True)
         form.addWidget(links)
+        self.beta = QWidget()
+        beta = QVBoxLayout(self.beta)
+        layout.addWidget(self.beta)
+        beta.addWidget(note(hosted.CONSENT))
+        beta.addWidget(note("All your devices share one allowance. The owner’s shared budget can run out first."))
+        self.consent = QCheckBox("I agree to use the hosted service")
+        self.consent.setChecked(hosted.provider() == "Hosted")
+        beta.addWidget(self.consent)
+        self.invite = QLineEdit()
+        self.invite.setMaxLength(64)
+        self.invite.setEchoMode(QLineEdit.EchoMode.Password)
+        beta.addLayout(field("Single-use invitation", self.invite))
+        self.enroll = button("Activate this PC")
+        self.enroll.clicked.connect(self.activate_device)
+        beta.addWidget(self.enroll)
+        self.device_status = note("")
+        beta.addWidget(self.device_status)
+        self.unlink = button("Forget hosted access on this PC")
+        self.unlink.clicked.connect(self.forget_device)
+        beta.addWidget(self.unlink)
+        self.activation = None
+        self.activation_finished.connect(self.activated)
+        self.finished.connect(lambda _: self.activation.set() if self.activation else None)
         self.error = self.error_label()
         self.body.addWidget(self.error)
-        save = button("Save settings", "primary")
-        save.clicked.connect(self.save)
-        self.body.addWidget(save)
+        self.save_button = button("Save settings", "primary")
+        self.save_button.clicked.connect(self.save)
+        self.body.addWidget(self.save_button)
+        self.provider.currentIndexChanged.connect(self.refresh_provider)
+        self.refresh_provider()
         self.key_state()
         self.resize(475, min(650, parent.height()))
+
+    def refresh_provider(self):
+        beta = self.provider.currentIndex() == 1
+        self.personal.setVisible(not beta)
+        self.beta.setVisible(beta)
+        self.device_status.setText("This PC is activated." if hosted.active() else "Ask the owner for an invitation.")
+        self.unlink.setVisible(hosted.active())
+
+    def forget_device(self):
+        try:
+            hosted.forget()
+            self.refresh_provider()
+        except OSError:
+            self.device_status.setText("Windows could not remove the local credential.")
+
+    def activate_device(self):
+        if self.activation:
+            return
+        token = self.activation = api.Cancellation()
+        invitation, accepted = self.invite.text(), self.consent.isChecked()
+        self.beta.setEnabled(False)
+        self.provider.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.device_status.setText("Activating…")
+        def work():
+            try:
+                hosted.activate(invitation, accepted, token)
+                ok, hint = True, "Activated. Save settings to use the hosted beta."
+            except (ValueError, OSError) as exc:
+                ok, hint = False, str(exc) if isinstance(exc, ValueError) else "Activation could not finish. Retry the same invitation."
+            if not token.is_set():
+                try:
+                    self.activation_finished.emit(ok, hint)
+                except RuntimeError:
+                    pass
+        threading.Thread(target=work, daemon=True, name="Calendar assistant activation").start()
+
+    def activated(self, ok, hint):
+        self.activation = None
+        self.beta.setEnabled(True)
+        self.provider.setEnabled(True)
+        self.save_button.setEnabled(True)
+        if ok:
+            self.invite.clear()
+        self.refresh_provider()
+        self.device_status.setText(hint)
 
     def key_state(self):
         saved = (config.directory() / "project.key.dpapi").is_file()
@@ -108,6 +189,10 @@ class AssistantSettings(PlannerDialog):
 
     def save(self):
         try:
+            if self.provider.currentIndex() == 1:
+                hosted.select("Hosted", self.consent.isChecked())
+                self.accept()
+                return
             prefs = config.validate_options(
                 {
                     "mode": self.mode.currentText(),
@@ -118,6 +203,7 @@ class AssistantSettings(PlannerDialog):
             if self.key.text():
                 config.save_key(self.key.text().strip())
             config.save_options(prefs)
+            hosted.select("Personal")
         except (ValueError, OSError) as exc:
             self.error.setText(
                 str(exc) if isinstance(exc, ValueError) else "Windows could not save assistant settings."
@@ -142,6 +228,8 @@ class AssistantPanel(QFrame):
         self.stop = None
         self.scope = calendar_scope(window.store)
         self.pending_text = ""
+        self.history_provider = None
+        self.hosted_attempt = None
         self.finished.connect(self.receive)
         self.transcribing.connect(self.transcription_progress)
         box = QVBoxLayout(self)
@@ -256,6 +344,7 @@ class AssistantPanel(QFrame):
     def clear(self):
         self.cancel()
         self.history.clear()
+        self.hosted_attempt = None
         self.pending_text = ""
         self.discard_plan()
         self.chat.clear()
@@ -308,17 +397,30 @@ class AssistantPanel(QFrame):
         scope = self.scope
         path = self.window.store.path
         today = self.window.clock()
+        provider = hosted.provider()
+        if provider != self.history_provider:
+            self.history.clear()
+            self.hosted_attempt = None
+            self.history_provider = provider
         history = list(self.history)
         self.pending_text = text
-        self.status.setText("Checking your request…")
+        self.status.setText(f"{provider} · Checking your request…")
+        if provider == "Hosted":
+            if self.hosted_attempt is None or self.hosted_attempt[0] != text:
+                self.hosted_attempt = (text, hosted.turn_id())
+            turn = hosted.Turn(self.hosted_attempt[1], today)
 
         def ask(token):
-            key = config.project_key()
             with closing(Store(path)) as store:
                 tools = CalendarTools(store, today)
             if tools.scope != scope:
                 raise ValueError("Calendar changed. Send the request again.")
-            return api.run(tools, key, config.options(), history, text, token)
+            if provider == "Hosted":
+                reply, plan, status = api.run(tools, hosted.credential(), config.DEFAULTS, history, text, token, turn.respond)
+                return reply, plan, "Hosted · " + status
+            if provider != "Personal":
+                raise ValueError("Select an assistant provider in Settings.")
+            return api.run(tools, config.project_key(), config.options(), history, text, token)
 
         self.start("response", ask)
 
@@ -326,8 +428,12 @@ class AssistantPanel(QFrame):
         self.check_scope()
         if self.token or self.plan:
             return
+        provider = hosted.provider()
         try:
-            if not config.project_key():
+            if provider not in ("Personal", "Hosted"):
+                raise ValueError("Select an assistant provider in Settings.")
+            key = hosted.credential() if provider == "Hosted" else config.project_key()
+            if not key:
                 raise ValueError("Add your project API key in Assistant settings.")
         except (OSError, ValueError) as exc:
             self.status.setText(str(exc))
@@ -337,10 +443,13 @@ class AssistantPanel(QFrame):
         self.status.setText("Recording · release after holding, or choose Stop. Maximum 45 seconds.")
 
         def listen(token):
-            key = config.project_key()
             data = Recorder().capture(stop, token)
             token.check()
             self.transcribing.emit(token)
+            if provider != hosted.provider():
+                raise ValueError("Provider changed. Record again to use the selected provider.")
+            if provider == "Hosted":
+                return hosted.transcribe(hosted.credential(), data, token), "Hosted · gpt-transcribe"
             transcript = api.transcribe(key, data, token)
             with wave.open(io.BytesIO(data)) as wav:
                 seconds = wav.getnframes() / wav.getframerate()
@@ -386,6 +495,7 @@ class AssistantPanel(QFrame):
                 self.status.setText("Review before sending. " + status)
         else:
             reply, self.plan, status = result
+            self.hosted_attempt = None
             self.append("You", self.pending_text)
             self.append("Assistant", reply)
             self.history = (self.history + [("user", self.pending_text), ("assistant", reply)])[-6:]

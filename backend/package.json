@@ -7,9 +7,14 @@
   "scripts": {
     "dev": "wrangler dev --local",
     "test": "node --test",
-    "deploy": "wrangler deploy && wrangler deploy --name calender-sync-dev"
+    "deploy": "wrangler deploy && wrangler deploy --name calender-sync-dev",
+    "ai:dev": "wrangler dev --config ai/wrangler.jsonc --local",
+    "ai:deploy": "wrangler deploy --config ai/wrangler.jsonc",
+    "ai:load": "node ai/testing/load.mjs --desktop"
   },
   "devDependencies": {
-    "wrangler": "4.156.1"
+    "wrangler": "4.156.1",
+    "miniflare": "5.20261101.0-beta",
+    "esbuild": "0.28.2"
   }
 }

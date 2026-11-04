@@ -67,13 +67,13 @@ To back up a calendar, close every Calendar window and copy the database file. T
 
 The 1.3.1 development build offers encrypted sync under **Settings → Sync**. Disconnecting keeps unsent edits and deletions on this PC for their original calendar. Recovering that calendar resumes them, even after restarting the app. Assessments also keep their connection to a removed subject, so adding the subject again restores its label and colour on both PCs. The public 1.2.1 offline installer above is the earlier offline release. [Two-PC trial, screenshots and security design](backend/README.md)
 
-## Assistant prototype (1.4.2)
+## Assistant prototype (1.5.0)
 
-Run the prototype installer or open the portable executable on Windows x64. To launch from source, activate the Windows environment described above and run `python -m school_calendar`. In **Settings → Assistant**, enter a project API key, choose **Auto**, and save. Use a fictional calendar while trying the prototype.
+Run the prototype installer or portable executable on Windows x64, or launch `python -m school_calendar` from the Windows environment above. Choose a provider in **Settings → Assistant**. **Personal project key** uses your own project and preserves saved keys and model preferences when upgrading. **Hosted beta** uses an owner-funded invitation. It sends messages, selected calendar details and submitted audio through the Calendar AI service to OpenAI after you accept the notice. Each person's devices share one allowance. Offline planning and encrypted sync work independently. Use a fictional calendar while trying the prototype. [Hosted setup, limits and verification](backend/ai/README.md)
 
 Open **Assistant** in the toolbar and type a request, such as “What assessments do I have next week?” Hold **Talk** and release to transcribe, or click **Talk** and choose **Stop**. **Cancel** discards the recording. The limit is 45 seconds. Edit the transcript, then choose **Send**. Voice capture uses Windows’ built-in waveform audio service.
 
-Auto routes routine requests to `gpt-6-luna` and constraint-heavy scheduling to `gpt-6.1-sol`. The settings also offer **Routine**, **Planning**, and **GPT-5.4**. A turn can make at most four Responses requests with up to 1,800 output tokens per request. The app displays available API usage and an estimated list-price cost. See [project sharing, retention, billing and the fictional verification commands](docs/assistant-api.md).
+Personal **Auto** routes routine requests to `gpt-6-luna` and constraint-heavy scheduling to `gpt-6.1-sol`. Personal settings also offer **Routine**, **Planning** and **GPT-5.4**. A turn can make up to four Responses requests, each capped at 1,800 output tokens in personal mode or 1,400 in hosted mode. Hosted model routing and spending ceilings are enforced by the service. The app displays available API usage and an estimated list-price cost. [Project sharing, retention, billing and fictional verification](docs/assistant-api.md)
 
 The assistant can find assessments, calculate days remaining, check free periods and prepare changes to up to twelve entries at once. It checks timed overlaps locally. A start with no end reserves the rest of the day for planning, and untimed assessments are reported separately. Review the proposed values and click **Apply** to save. If the calendar changes underneath the proposal, send the request again for a fresh review.
 
@@ -109,12 +109,12 @@ To build the per-user installer, install [Inno Setup 6](https://jrsoftware.org/i
 .\.venv\Scripts\python.exe .\scripts\build_installer.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ~~~
 
-The installer build freezes a fresh directory runtime with replaceable Qt DLLs. This source version writes **Calendar-1.4.2-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
+The installer build freezes a fresh directory runtime with replaceable Qt DLLs. This source version writes **Calendar-1.5.0-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The installed app includes the [third-party notices](installer/THIRD-PARTY.md).
 
 On a Windows test account without an existing Calendar installation, run the installer smoke test in PowerShell 7. It creates a disposable calendar, tests both shortcut choices, reopens the saved entry after reinstalling, and checks the database after uninstalling.
 
 ~~~powershell
-.\scripts\test_installer.ps1 -Installer .\dist\release\Calendar-1.4.2-Setup.exe
+.\scripts\test_installer.ps1 -Installer .\dist\release\Calendar-1.5.0-Setup.exe
 ~~~
 
 The public site is served by GitHub Pages from **docs** on **main**. Its screenshots use sample entries. Build outputs, dependencies and personal calendars stay outside Git.
