@@ -1,16 +1,16 @@
-# Calender
+# Calendar
 
-A local Windows planner for SACs, exams, assignments, deadlines, and custom events. Calender opens to today in your last-used Month or Week view. It runs offline.
+A local Windows planner for SACs, exams, assignments, deadlines, and custom events. Calendar opens to today in your last-used Month or Week view. It runs offline.
 
-[Official Calender page](https://nottbradd.github.io/Calender/) · [Download the Windows installer](https://github.com/nottbradd/Calender/releases/download/v1.2.0/Calender-1.2.0-Setup.exe) · [Release notes and checksums](https://github.com/nottbradd/Calender/releases/tag/v1.2.0)
+[Official Calendar page](https://nottbradd.github.io/Calendar/) · [Download the Windows installer](https://github.com/nottbradd/Calendar/releases/download/v1.2.1/Calendar-1.2.1-Setup.exe) · [Release notes and checksums](https://github.com/nottbradd/Calendar/releases/tag/v1.2.1)
 
-![Calender on Windows, showing a month and upcoming assessments with sample entries](docs/calender.png)
+![Calendar on Windows, showing a month and upcoming assessments with sample entries](docs/calendar.png)
 
 ## Run on Windows
 
-Run **Calender-1.2.0-Setup.exe** on an x64 PC with Windows 10 (1809 or later) or Windows 11. Setup installs for your account, adds **Calender** to Start and offers an optional desktop shortcut. Python and Qt are included. The installer is unsigned.
+Run **Calendar-1.2.1-Setup.exe** on an x64 PC with Windows 10 (1809 or later) or Windows 11. Setup installs for your account, adds **Calendar** to Start and offers an optional desktop shortcut. Python and Qt are included. The installer is unsigned.
 
-To update an installed copy, close Calender and run the new installer. To uninstall, open **Settings → Apps → Installed apps**, choose **Calender**, then **Uninstall**. Entries stay in the local database described below.
+To update an installed copy, close Calendar and run the new installer. To uninstall, open **Settings → Apps → Installed apps**, choose **Calendar**, then **Uninstall**. Entries stay in the local database described below.
 
 To run from source, use 64-bit Python 3.14 on Windows and open PowerShell in the project folder.
 
@@ -37,7 +37,7 @@ The week starts on Monday. All-day entries stay above the schedule as you scroll
 
 A coloured block spans the exact time range. A hollow circle marks a start with no end time. Overlapping entries sit side by side. Even a one-minute entry has a clickable title and time below its thin duration mark. On smaller windows **Show agenda** opens Upcoming and Completed alongside the week. Crowded days allow horizontal scrolling.
 
-![Calender week with a 10:15–11:45 lab, overlapping workshops and a start-only deadline](docs/week.png)
+![Calendar week with a 10:15–11:45 lab, overlapping workshops and a start-only deadline](docs/week.png)
 
 ### Subjects
 
@@ -59,15 +59,15 @@ Open **Settings**, enter a subject name, choose a colour, and select **Add subje
 
 ## Local data
 
-Calender opens the original database at **%LOCALAPPDATA%\SchoolCalendar\calendar.sqlite3**. The 1.3.1 prototype upgrades schemas 1–3 in a single transaction and keeps entry IDs, subject associations, views and existing sync profiles. New calendars start with sync disabled. The source and standalone versions share this location. Dates are stored as calendar dates and times as local clock times. Countdowns use the computer’s local date.
+Calendar opens the original database at **%LOCALAPPDATA%\SchoolCalendar\calendar.sqlite3**. The 1.3.1 prototype upgrades schemas 1–3 in a single transaction and keeps entry IDs, subject associations, views and existing sync profiles. New calendars start with sync disabled. The source and standalone versions share this location. Dates are stored as calendar dates and times as local clock times. Countdowns use the computer’s local date.
 
-To back up a calendar, close every Calender window and copy the database file. To restore it on the same PC, close the app, keep a copy of your current database, and put the backup at the path above. A second synced PC should join with its own installation and database. If the app cannot read a file, it reports the error and preserves the file. A failed save leaves the editor open with your values.
+To back up a calendar, close every Calendar window and copy the database file. To restore it on the same PC, close the app, keep a copy of your current database, and put the backup at the path above. A second synced PC should join with its own installation and database. If the app cannot read a file, it reports the error and preserves the file. A failed save leaves the editor open with your values.
 
 ## Sync prototype
 
-The 1.3.1 development build offers encrypted sync under **Settings → Sync**. Disconnecting keeps unsent edits and deletions on this PC for their original calendar. Recovering that calendar resumes them, even after restarting the app. Assessments also keep their connection to a removed subject, so adding the subject again restores its label and colour on both PCs. The public 1.2.0 installer above is the earlier offline release. [Two-PC trial, screenshots and security design](backend/README.md)
+The 1.3.1 development build offers encrypted sync under **Settings → Sync**. Disconnecting keeps unsent edits and deletions on this PC for their original calendar. Recovering that calendar resumes them, even after restarting the app. Assessments also keep their connection to a removed subject, so adding the subject again restores its label and colour on both PCs. The public 1.2.1 offline installer above is the earlier offline release. [Two-PC trial, screenshots and security design](backend/README.md)
 
-## Assistant prototype (1.4.0)
+## Assistant prototype (1.4.1)
 
 Run the prototype installer or open the portable executable on Windows x64. To launch from source, activate the Windows environment described above and run `python -m school_calendar`. In **Settings → Assistant**, enter a project API key, choose **Auto**, and save. Use a fictional calendar while trying the prototype.
 
@@ -100,7 +100,7 @@ Build and launch the portable, single-file Windows executable with these command
 ~~~powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe .\scripts\build_windows.py
-& ".\dist\Calender.exe"
+& ".\dist\Calendar.exe"
 ~~~
 
 To build the per-user installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php). From the same development environment, point the build at your compiler. The release was built with Inno Setup 6.7.3.
@@ -109,16 +109,16 @@ To build the per-user installer, install [Inno Setup 6](https://jrsoftware.org/i
 .\.venv\Scripts\python.exe .\scripts\build_installer.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ~~~
 
-The installer build freezes a fresh directory runtime with replaceable Qt DLLs. This source version writes **Calender-1.4.0-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
+The installer build freezes a fresh directory runtime with replaceable Qt DLLs. This source version writes **Calendar-1.4.1-Setup.exe** and **SHA256SUMS.txt** into **dist/release**. The [third-party notices](installer/THIRD-PARTY.md) are included in the installed app.
 
-On a Windows test account without an existing Calender installation, run the installer smoke test in PowerShell 7. It creates a disposable calendar, tests both shortcut choices, reopens the saved entry after reinstalling, and checks the database after uninstalling.
+On a Windows test account without an existing Calendar installation, run the installer smoke test in PowerShell 7. It creates a disposable calendar, tests both shortcut choices, reopens the saved entry after reinstalling, and checks the database after uninstalling.
 
 ~~~powershell
-.\scripts\test_installer.ps1 -Installer .\dist\release\Calender-1.4.0-Setup.exe
+.\scripts\test_installer.ps1 -Installer .\dist\release\Calendar-1.4.1-Setup.exe
 ~~~
 
 The public site is served by GitHub Pages from **docs** on **main**. Its screenshots use sample entries. Build outputs, dependencies and personal calendars stay outside Git.
 
 ## License
 
-Calender is released under the [MIT License](LICENSE). Bundled libraries and the Source Sans 3 font have their own licenses, listed in the [third-party notices](installer/THIRD-PARTY.md).
+Calendar is released under the [MIT License](LICENSE). Bundled libraries and the Source Sans 3 font have their own licenses, listed in the [third-party notices](installer/THIRD-PARTY.md).

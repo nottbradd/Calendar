@@ -24,7 +24,7 @@ from school_calendar.sync_client import Api, SERVICE, Sync, SyncError, summary
 class MeasuredApi(Api):
     def __init__(self, base):
         super().__init__(base)
-        self.opener.addheaders = [("X-Calender-Check", "disposable-v1")]
+        self.opener.addheaders = [("X-Calendar-Check", "disposable-v1")]
         self.interrupt = False
 
     def call(self, identity, action, body=None):
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         parser.error("--peer-packaged requires --packaged.")
     owned = []
     try:
-        with TemporaryDirectory(prefix="calender-sync-trial-") as tmp:
+        with TemporaryDirectory(prefix="calendar-sync-trial-") as tmp:
             trial(args, Path(tmp), owned)
     finally:
         if args.audit:

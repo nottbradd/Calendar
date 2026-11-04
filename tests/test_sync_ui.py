@@ -1,4 +1,4 @@
-"""Drive the real Settings dialogs. Set CALENDER_LOCAL_UI_TRIAL=1 for the local Wrangler trial."""
+"""Drive the real Settings dialogs. Set CALENDAR_LOCAL_UI_TRIAL=1 for the local Wrangler trial."""
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -53,7 +53,7 @@ class SyncInterfaceTests(unittest.TestCase):
         settings.setup_row[0].click()
         self.assertEqual(summary(window.store.db)["phase"], "disabled")
 
-    @unittest.skipUnless(os.environ.get("CALENDER_LOCAL_UI_TRIAL") == "1", "requires local Wrangler on port 18787")
+    @unittest.skipUnless(os.environ.get("CALENDAR_LOCAL_UI_TRIAL") == "1", "requires local Wrangler on port 18787")
     def test_create_join_compare_and_approve_through_settings(self):
         a, left = self.device("A")
         b, right = self.device("B")

@@ -1,20 +1,24 @@
-# Run in PowerShell 7 on a Windows desktop without an existing Calender installation.
-param([Parameter(Mandatory)][string]$Installer)
+# Run in PowerShell 7 on a Windows desktop without an existing Calendar installation.
+param([Parameter(Mandatory)][string]$Installer, [string]$PreviousInstaller)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 $setup = (Resolve-Path -LiteralPath $Installer).Path
 $version = (Get-Item -LiteralPath $setup).VersionInfo.ProductVersion
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E1509736-CE1A-42CA-AD11-F9F885ECD5B4}_is1'
-$startLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'Calender.lnk'
-$desktopLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Calender.lnk'
-foreach ($path in @($uninstallKey, $startLink, $desktopLink)) {
+$startLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'Calendar.lnk'
+$desktopLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Calendar.lnk'
+$oldStartLink = Join-Path ([Environment]::GetFolderPath('Programs')) 'Calender.lnk'
+$oldDesktopLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Calender.lnk'
+foreach ($path in @($uninstallKey, $startLink, $desktopLink, $oldStartLink, $oldDesktopLink)) {
     if (Test-Path -LiteralPath $path) { throw "Existing installation or shortcut at $path. Use a clean test account." }
 }
-$testRoot = [IO.Directory]::CreateTempSubdirectory('Calender-installer-').FullName
-$installDir = Join-Path $testRoot 'Program Files/Calender'
+$testRoot = [IO.Directory]::CreateTempSubdirectory('Calendar-installer-').FullName
+$folderName = if ($PreviousInstaller) { 'Calender' } else { 'Calendar' }
+$installDir = Join-Path $testRoot "Program Files/$folderName"
 $profileDir = Join-Path $testRoot 'Profile'
-$exe = Join-Path $installDir 'Calender.exe'
+$exe = Join-Path $installDir 'Calendar.exe'
+$oldExe = Join-Path $installDir 'Calender.exe'
 $uninstaller = Join-Path $installDir 'unins000.exe'
 $database = Join-Path $profileDir 'SchoolCalendar/calendar.sqlite3'
 $sample = 'Installer verification entry'
@@ -30,8 +34,8 @@ function Run-Setup([string]$program, [string[]]$options) {
     if (!$p.WaitForExit(120000) -or $p.ExitCode -ne 0) { throw "Setup failed for $program" }
 }
 
-function Check-Link([string]$path) {
-    if (!(Test-Path -LiteralPath $path) -or $shellLinks.CreateShortcut($path).TargetPath -ne $exe) {
+function Check-Link([string]$path, [string]$target = $exe) {
+    if (!(Test-Path -LiteralPath $path) -or $shellLinks.CreateShortcut($path).TargetPath -ne $target) {
         throw "Incorrect shortcut at $path"
     }
 }
@@ -58,8 +62,8 @@ function Find-Control([int]$processId, [string]$name, $kind) {
     throw "Missing control '$name' in the installed app. $lastError"
 }
 
-function Test-InstalledApp([bool]$createEntry) {
-    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+function Test-InstalledApp([bool]$createEntry, [string]$program = $exe, [string]$title = 'Calendar') {
+    $info = [Diagnostics.ProcessStartInfo]::new($program)
     $info.WorkingDirectory = $testRoot
     $info.UseShellExecute = $false
     $info.Environment['LOCALAPPDATA'] = $profileDir
@@ -73,16 +77,18 @@ function Test-InstalledApp([bool]$createEntry) {
             $p.Refresh()
             Start-Sleep -Milliseconds 100
         }
-        if ($p.MainWindowTitle -ne 'Calender') { throw 'Installed app did not display its main window.' }
+        if ($p.MainWindowTitle -ne $title) { throw "Installed app did not display $title in its title bar." }
         $type = [System.Windows.Automation.ControlType]
         $invoke = [System.Windows.Automation.InvokePattern]::Pattern
-        if ($createEntry) {
+        if ($createEntry -and $title -eq 'Calendar') {
             (Find-Control $p.Id 'Assistant' $type::Button).GetCurrentPattern($invoke).Invoke()
             $null = Find-Control $p.Id 'Send' $type::Button
             $null = Find-Control $p.Id 'Talk' $type::Button
             (Find-Control $p.Id 'Assistant settings' $type::Button).GetCurrentPattern($invoke).Invoke()
             $null = Find-Control $p.Id 'Model routing' $type::ComboBox
             (Find-Control $p.Id 'Save settings' $type::Button).GetCurrentPattern($invoke).Invoke()
+        }
+        if ($createEntry) {
             (Find-Control $p.Id 'Add entry' $type::Button).GetCurrentPattern($invoke).Invoke()
             (Find-Control $p.Id 'Title *' $type::Edit).GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($sample)
             (Find-Control $p.Id 'Save entry' $type::Button).GetCurrentPattern($invoke).Invoke()
@@ -106,15 +112,30 @@ function Test-InstalledApp([bool]$createEntry) {
 }
 
 try {
-    Run-Setup $setup @("/DIR=$installDir")
+    if ($PreviousInstaller) {
+        Run-Setup (Resolve-Path -LiteralPath $PreviousInstaller).Path @("/DIR=$installDir", '/TASKS=desktopicon')
+        Check-Link $oldStartLink $oldExe
+        Check-Link $oldDesktopLink $oldExe
+        Test-InstalledApp $true $oldExe 'Calender'
+        $beforeUpgrade = (Get-FileHash -LiteralPath $database).Hash
+        Run-Setup $setup @()  # Same AppId should reuse the install directory and desktop shortcut choice.
+        if ((Get-FileHash -LiteralPath $database).Hash -ne $beforeUpgrade) { throw 'Upgrade installer changed the saved calendar.' }
+        foreach ($path in @($oldExe, $oldStartLink, $oldDesktopLink)) {
+            if (Test-Path -LiteralPath $path) { throw "Upgrade left obsolete app file or shortcut at $path" }
+        }
+        Check-Link $desktopLink
+    } else {
+        Run-Setup $setup @("/DIR=$installDir")
+        if (Test-Path -LiteralPath $desktopLink) { throw 'Desktop shortcut should be opt-in.' }
+    }
     $registered = Get-ItemProperty -LiteralPath $uninstallKey
-    if ($registered.InstallLocation.TrimEnd('\') -ne $installDir -or $version.Trim() -ne $registered.DisplayVersion) {
+    if ($registered.InstallLocation.TrimEnd('\') -ne $installDir -or $version.Trim() -ne $registered.DisplayVersion -or
+        $registered.DisplayName -ne 'Calendar') {
         throw 'Incorrect per-user uninstall registration.'
     }
     Check-Link $startLink
-    if (Test-Path -LiteralPath $desktopLink) { throw 'Desktop shortcut should be opt-in.' }
-    Test-InstalledApp $true
-    $before = (Get-FileHash -LiteralPath $database).Hash
+    Test-InstalledApp (!$PreviousInstaller)
+    $before = (Get-FileHash -LiteralPath $database).Hash  # Opening an older calendar may have migrated its schema.
     Run-Setup $setup @('/TASKS=desktopicon')
     Check-Link $startLink
     Check-Link $desktopLink
@@ -135,6 +156,6 @@ try {
     for ($i = 0; $i -lt 80 -and (Test-Path -LiteralPath $uninstaller); $i++) { Start-Sleep -Milliseconds 100 }
     $resolved = (Resolve-Path -LiteralPath $testRoot).Path
     if ([IO.Path]::GetDirectoryName($resolved) -ne [IO.Path]::GetTempPath().TrimEnd('\') -or
-        !([IO.Path]::GetFileName($resolved).StartsWith('Calender-installer-'))) { throw 'Unexpected test directory.' }
+        !([IO.Path]::GetFileName($resolved).StartsWith('Calendar-installer-'))) { throw 'Unexpected test directory.' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }

@@ -25,7 +25,11 @@ SHARING = (
 
 
 def directory():
-    return Path(os.environ["LOCALAPPDATA"]) / "CalenderAssistant"
+    root = Path(os.environ["LOCALAPPDATA"])
+    # Keep a previously configured Windows user on the same DPAPI key and settings,
+    # including while an older installation is still running.
+    previous = root / "CalenderAssistant"
+    return previous if previous.is_dir() else root / "CalendarAssistant"
 
 
 def _write(name, data):

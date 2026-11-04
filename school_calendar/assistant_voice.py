@@ -30,7 +30,7 @@ class Recorder:
         alias = "cal" + uuid4().hex
         if cancel_event.is_set():
             raise InterruptedError()
-        with TemporaryDirectory(prefix="Calender-voice-") as directory:
+        with TemporaryDirectory(prefix="Calendar-voice-") as directory:
             output = Path(directory) / "speech.wav"
             self.command(f"open new type waveaudio alias {alias}")
             try:

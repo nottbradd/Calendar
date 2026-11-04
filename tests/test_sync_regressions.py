@@ -22,13 +22,13 @@ def recover_after_restart(path, base, kit):
         engine.run()
 
 
-@unittest.skipUnless(os.environ.get("CALENDER_LOCAL_UI_TRIAL") == "1", "requires a development Worker")
+@unittest.skipUnless(os.environ.get("CALENDAR_LOCAL_UI_TRIAL") == "1", "requires a development Worker")
 class SyncRegressionTrials(unittest.TestCase):
     def setUp(self):
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.folder = Path(tmp.name)
-        base = os.environ.get("CALENDER_REGRESSION_BASE", "http://127.0.0.1:18787")
+        base = os.environ.get("CALENDAR_REGRESSION_BASE", "http://127.0.0.1:18787")
         self.assertIn(base, ("http://127.0.0.1:18787", SERVICE))
         self.api = Api(base)
         self.target = "--remote" if base == SERVICE else "--local"

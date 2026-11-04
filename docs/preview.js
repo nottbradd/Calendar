@@ -1,12 +1,12 @@
 const previews = {
   week: {
     file: "week.png",
-    alt: "Calender's weekly timeline with a 10:15–11:45 lab, overlapping workshops and the upcoming list.",
+    alt: "Calendar's weekly timeline with a 10:15–11:45 lab, overlapping workshops and the upcoming list.",
     caption: "Week view · Timed entries and all-day work.",
   },
   month: {
-    file: "calender.png",
-    alt: "November in Calender, with colour-coded assignments on their dates and an upcoming list alongside.",
+    file: "calendar.png",
+    alt: "November in Calendar, with colour-coded assignments on their dates and an upcoming list alongside.",
     caption: "Month view · Assessments and upcoming deadlines.",
   },
   subjects: {

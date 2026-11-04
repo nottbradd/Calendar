@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 def set_taskbar_identity() -> None:
     if sys.platform == "win32":
+        # Keep grouping and jump lists associated with pre-rename installations.
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Calender.Desktop")
 
 

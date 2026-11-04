@@ -12,6 +12,22 @@ from school_calendar.storage import Store
 
 
 class AssistantProfileTests(unittest.TestCase):
+    def test_existing_assistant_key_and_model_preferences_survive_product_rename(self):
+        from school_calendar.sync_crypto import dpapi
+        import json
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {"LOCALAPPDATA": tmp}):
+            self.assertEqual(config.directory().name, "CalendarAssistant")
+            legacy = Path(tmp) / "CalenderAssistant"
+            legacy.mkdir()
+            prefs = {**config.DEFAULTS, "mode": "GPT-5.4"}
+            (legacy / "settings.json").write_text(json.dumps(prefs), encoding="utf-8")
+            (legacy / "project.key.dpapi").write_bytes(dpapi(b"fictional-pre-rename-key"))
+            self.assertEqual(config.project_key(), "fictional-pre-rename-key")
+            self.assertEqual(config.options(), prefs)
+            config.save_key("fictional-updated-key")
+            self.assertEqual(dpapi((legacy / "project.key.dpapi").read_bytes(), unlock=True),
+                             b"fictional-updated-key")
+
     def test_replace_remove_key_and_persist_model_selection_outside_calendar(self):
         with (
             TemporaryDirectory() as temporary,

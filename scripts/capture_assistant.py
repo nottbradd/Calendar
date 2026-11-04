@@ -119,7 +119,7 @@ def capture(folder):
     apply_theme(app)
     today = date(2026, 11, 4)
     with (
-        TemporaryDirectory(prefix="calender-assistant-picture-") as temporary,
+        TemporaryDirectory(prefix="calendar-assistant-picture-") as temporary,
         patch.dict(os.environ, {"LOCALAPPDATA": temporary, "OPENAI_API_KEY": ""}),
     ):
         save_key("sample-only-screenshot-key")

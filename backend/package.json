@@ -1,5 +1,5 @@
 {
-  "name": "calender-sync-dev",
+  "name": "calendar-sync-dev",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev --local",
     "test": "node --test",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy && wrangler deploy --name calender-sync-dev"
   },
   "devDependencies": {
     "wrangler": "4.156.1"

@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 
 def main():
     backend = Path(__file__).resolve().parents[1] / "backend"
-    command = ["node", "node_modules/wrangler/bin/wrangler.js", "tail", "calender-sync-dev",
-               "--format", "json", "--header", "X-Calender-Check:disposable-v1", "--method", "POST"]
+    command = ["node", "node_modules/wrangler/bin/wrangler.js", "tail", "calendar-sync-dev",
+               "--format", "json", "--header", "X-Calendar-Check:disposable-v1", "--method", "POST"]
     process = subprocess.Popen(command, cwd=backend, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                encoding="utf-8", errors="replace", env={**os.environ, "WRANGLER_SEND_METRICS": "false"})
     lines = queue.Queue()
@@ -44,7 +44,7 @@ def main():
             buffer = ""
             request = event.get("event", {}).get("request", {})
             headers = {k.lower(): v for k, v in request.get("headers", {}).items()}
-            if headers.get("x-calender-check") != "disposable-v1":
+            if headers.get("x-calendar-check") != "disposable-v1":
                 continue
             path = urlsplit(request["url"])
             assert not path.query and "body" not in request

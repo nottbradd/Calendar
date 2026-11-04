@@ -1,4 +1,4 @@
-"""Versioned Calender cryptographic formats. All secret-key operations run on the PC."""
+"""Versioned Calendar cryptographic formats. All secret-key operations run on the PC."""
 import base64
 import ctypes
 import hashlib
@@ -43,6 +43,8 @@ def parse_kit(text, prefix):
     return parts[1], parts[2]
 
 
+# The v1 domain separators below are wire constants. Their original spelling is
+# required to open existing calendars and pair with previously released clients.
 def recovery(seed):
     def derive(label):
         return hmac.digest(decode(seed), b"Calender/recovery/v1/" + label, "sha256")

@@ -30,7 +30,7 @@ def fictional_recording():
         $voice.Speak('The fictional violet exam is on Tuesday.')
     } finally { $voice.Dispose() }
     """
-    with TemporaryDirectory(prefix="calender-fictional-") as tmp:
+    with TemporaryDirectory(prefix="calendar-fictional-") as tmp:
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith("OPENAI_")}
         subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
@@ -142,7 +142,7 @@ def verify_function_call(key, model):
 
 
 def verify_transcription(key, audio):
-    boundary = "CalenderFictionalWav913"
+    boundary = "CalendarFictionalWav913"
     prefix = (
         f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-transcribe\r\n'
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="sample.wav"\r\n'
@@ -218,7 +218,7 @@ def main():
         key = project_key()
         if not key:
             raise ValueError(
-                "Live verification skipped: configure your OpenAI project key in Calender first."
+                "Live verification skipped: configure your OpenAI project key in Calendar first."
             )
     audio, seconds = fictional_recording()
     print(f"Fictional synthesized WAV validated offline ({seconds:.2f} seconds).")

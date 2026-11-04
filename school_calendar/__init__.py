@@ -1,4 +1,4 @@
-"""Calender, a local desktop planner."""
+"""Calendar, a local desktop planner."""
 
-APP_NAME = "Calender"
-__version__ = "1.4.0"
+APP_NAME = "Calendar"
+__version__ = "1.4.1"

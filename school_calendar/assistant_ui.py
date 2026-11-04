@@ -298,7 +298,7 @@ class AssistantPanel(QFrame):
                 except RuntimeError:
                     pass  # Window closed while the worker was returning.
 
-        threading.Thread(target=work, daemon=True, name="Calender assistant").start()
+        threading.Thread(target=work, daemon=True, name="Calendar assistant").start()
 
     def send(self):
         self.check_scope()
@@ -409,7 +409,7 @@ class AssistantPanel(QFrame):
             self.status.setText(str(exc))
         else:
             self.plan = None
-            self.append("Calender", "Changes saved." if changed else "These changes were already applied.")
+            self.append("Calendar", "Changes saved." if changed else "These changes were already applied.")
             self.history.append(("assistant", "The reviewed changes were saved locally."))
             self.status.setText("Saved to this calendar.")
             self.window.reload()

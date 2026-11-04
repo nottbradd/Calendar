@@ -11,7 +11,7 @@ from . import sync_crypto as crypto
 from . import sync_journal as journal
 
 
-SERVICE = "https://calender-sync-dev.nottbradd.workers.dev"
+SERVICE = "https://calendar-sync-dev.nottbradd.workers.dev"
 
 
 class SyncError(Exception):
@@ -45,7 +45,7 @@ class Api:
     def call(self, identity, action, body=None):
         raw = journal.packed(body or {}).encode()
         request = Request(self.base + "/v1/" + identity["calendar"] + "/" + action, raw, {
-            "Content-Type": "application/json", "User-Agent": "Calender-Sync/1",
+            "Content-Type": "application/json", "User-Agent": "Calendar-Sync/1",
             "Authorization": "Bearer " + identity["device"] + "." + identity["token"],
         }, method="POST")
         self.requests += 1

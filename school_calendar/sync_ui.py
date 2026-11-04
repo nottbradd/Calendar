@@ -96,7 +96,7 @@ class SyncController(QObject):
             if not self.closed:
                 self.delivered.emit(action, result, error, code)
 
-        threading.Thread(target=work, name="Calender sync", daemon=True).start()
+        threading.Thread(target=work, name="Calendar sync", daemon=True).start()
 
     def _done(self, action, result, error, code):
         if self.closed:
