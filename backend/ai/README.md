@@ -4,7 +4,45 @@ The hosted option lets an invited person use typed chat and push-to-talk with an
 
 The Worker is [calendar-ai-beta](https://calendar-ai-beta.nottbradd.workers.dev/health). Its only D1 binding is `AI_DB`, connected to `calendar-ai-beta`. The deployment starts paused. Health reads the pause flag from D1. The public service has no owner endpoints and no access to the sync database.
 
-## Enable sponsorship
+**Participant access is closed.** The dedicated Calendar beta project has input/output sharing disabled. Its US$10 monthly provider cap was saved but enforcement read back **inactive** twice. Spend alerts returned HTTP 400 `paid_plan_required`. These are not working provider safeguards. Do not use `resume --private-project-verified` under these conditions.
+
+## Owner-only verification
+
+This mode authorizes one fictional test using the existing restricted Worker secret. It cannot admit a participant. It requires a paused Worker, no active identities, no unexpired invitations and enough room in all three spending buckets, including outstanding reservations. It creates one ten-minute invitation, enrolls one in-memory device while paused and holds a D1 lock until cleanup. It does not ask for or read an OpenAI key on the owner's PC.
+
+On **4 November 2026**, the linked organization showed a subscription credit grant expiring **26 November 2026**. The service key expires **4 December 2026**; it does not extend the grant. The remote probe stops before 00:00 UTC on the grant expiry date and never assumes renewal. No paid billing, purchases, auto-recharge, admin key or sharing changes are part of the workflow. The project is excluded from input/output sharing, so the sharing-based complimentary allowance is not assumed. Organization grant eligibility does not establish that a specific request used the grant. [OpenAI subscription credit terms](https://developers.openai.com/api/docs/guides/chatgpt-api-credits)
+
+Rehearse on Windows with disposable local D1 and the offline fixture. From the repository root, in a PowerShell window:
+
+~~~powershell
+$trialState = Join-Path $env:TEMP ("calendar-probe-" + [guid]::NewGuid())
+Write-Host $trialState
+cd backend
+node node_modules/wrangler/bin/wrangler.js d1 migrations apply AI_DB --local --persist-to $trialState --config ai/wrangler.jsonc
+node node_modules/wrangler/bin/wrangler.js dev ai/testing/local-worker.js --local --persist-to $trialState --config ai/wrangler.jsonc --ip 127.0.0.1 --port 18796
+~~~
+
+In a second window at the repository root, use the **same** state directory. The CLI verifies the fixture's loopback-only mock header. Remote mode accepts no custom endpoint. Run the remote command only for a separately authorized live test; **do not rerun it to resolve a denial or missing usage**.
+
+~~~powershell
+.\.venv\Scripts\python.exe backend/ai/owner.py --target local --persist-to "PATH_FROM_FIRST_WINDOW" owner-probe --mock-port 18796
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote owner-probe
+~~~
+
+The temporary D1 policy is one identity, one routine `gpt-6-luna` turn with at most two Responses calls, zero planning, and one synthetic PCM clip of at most five seconds. The absolute estimated ceilings are US$0.05 **each** per UTC day, UTC month and lifetime. Existing spend and holds count towards each ceiling. At the current rates the maximum reservations are US$0.005308 for step 1, US$0.005515 for step 2 and US$0.004500 for the clip (a full minute of cost headroom). Combined: **US$0.015323**. D1 checks the available headroom before staging the policy. The Worker still reserves each actual request separately.
+
+The text and audio checks run independently. The owner record under `artifacts/owner-probe-remote-*.json` contains snapshots, Worker HTTP statuses, per-attempt OpenAI HTTP statuses and allowlisted error codes/types, reported usage and estimated nano-US dollars. A missing provider code is recorded as `not_provided`; unrecognized values are redacted. Neither raw provider errors nor credentials are recorded. A rejection without usage retains its full reservation. This counts against all three ceilings; it is not a posted charge.
+
+Cleanup pauses and revokes in one D1 transaction, checks the actual disposable bearer receives HTTP 403, and restores only the previous policy while paused. All calls and accounting survive. If the owner process is interrupted, D1 blocks further inference at the ten-minute deadline. Run the following immediately: it uses the original policy already stored in D1, revokes even an incompletely enrolled identity, removes its outstanding invitation and leaves the Worker paused. After a process crash the in-memory bearer is gone, so the recovery command cannot retest that bearer. See the [live verification record](../../docs/hosted-owner-probe.md) before considering another test.
+
+~~~powershell
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote owner-probe-close
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote usage
+~~~
+
+## Enable normal participant sponsorship
+
+This is a separate activation path. Complete all prerequisites below, including verified provider enforcement and working alerts, before issuing a participant invitation. The owner-only trial does not satisfy them.
 
 1. In the OpenAI organization, create a dedicated project for the Calendar beta. Exclude this project from **Share inputs and outputs with OpenAI**. If sharing is enabled for all projects, explicitly change the selection so this project is excluded. Confirm the project's setting before activation. The beta assumes no promotional balance, expiry or complimentary coverage. [Project data controls](https://platform.openai.com/settings/organization/data-controls/sharing) · [API data retention](https://developers.openai.com/api/docs/guides/your-data)
 2. Open the dedicated project's **Limits → Spend → Edit spend limit**. Set the monthly limit to US$10, enable **Enforce a hard limit** and save. Configure separate spend alerts below the cap, for example at US$5 and US$8, and verify the notification recipient. A project hard limit can take time to propagate. Check posted costs in the project's Usage dashboard. The Worker independently enforces its own daily, monthly and cumulative estimates. [Spend controls](https://developers.openai.com/api/docs/guides/spend-limits) · [Usage dashboard](https://platform.openai.com/usage)
@@ -87,4 +125,4 @@ The owner confirmed Workers Free for this account. Its daily allowances are shar
 
 The deployed Worker passed D1 health, real desktop enrollment in a disposable profile, invitation reuse rejection, unauthenticated access rejection, paused chat and revocation. The fictional identity was revoked. D1 then reported zero upstream requests and zero estimated spend. The separate sync Worker also passed its health check. At 07:01 UTC the account-wide analytics reported 26 Worker requests, zero Worker errors, 103 rows read and 71 written across D1. Cloudflare reported 11 requests with zero Worker errors for the deployed beta through 07:06 UTC. CPU was 1.499 ms at p50 and 4.618 ms at p99. These 11 requests exercised paused health and access paths; paid inference and full audio handling were only measured locally. To measure a short window for the AI Worker alone, use `python backend/ai/metrics.py --beta-minutes 15`.
 
-The paid hosted function-call and transcription probe needs the dedicated private project credential. The earlier personal-key fictional verification is documented separately. Live participant traffic, an actual microphone recording and encrypted sync between two physical PCs remain outstanding. [Personal-key verification](../../docs/assistant-api.md) · [Two-PC trial](../README.md#trial-on-two-windows-pcs)
+The [owner-only hosted verification](../../docs/hosted-owner-probe.md) records the deployed endpoint results separately from the earlier [personal-key fictional verification](../../docs/assistant-api.md). Live participant traffic, an actual microphone recording and [encrypted sync between two physical PCs](../README.md#trial-on-two-windows-pcs) remain outstanding.

@@ -26,6 +26,8 @@ Standard text prices checked on 4 November 2026, in USD per million tokens, and 
 
 Both live checks passed in personal-key mode with fictional data on 4 November 2026.
 
+The [owner-only hosted verification](hosted-owner-probe.md) used a separate restricted service credential. Its results and D1 reservations are recorded separately from the personal-key figures below. Participant access remains closed.
+
 - **Function calling.** `gpt-6-luna` requested the fictional exam lookup and returned the date supplied by the tool. The API reported **344 tokens across two requests** (315 input and 29 output).
 - **Transcription.** `gpt-transcribe` correctly transcribed “Tuesday” from the 3.16-second synthetic recording. The API reported **4 seconds** of audio usage.
 

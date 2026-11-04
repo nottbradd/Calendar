@@ -1,25 +1,27 @@
 """Exercise an isolated sponsored desktop profile. Local mode requires the mock load harness."""
 
 import argparse
-from contextlib import closing
-from datetime import date
-from getpass import getpass
 import http.client
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+import wave
+from contextlib import closing
+from datetime import date
+from getpass import getpass
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import monotonic
 from unittest.mock import patch
 from urllib.parse import urlsplit
-import wave
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from school_calendar import assistant_api as api, assistant_config as config, assistant_hosted as hosted
+from school_calendar import assistant_api as api
+from school_calendar import assistant_config as config
+from school_calendar import assistant_hosted as hosted
 from school_calendar.assistant_calendar import CalendarTools
 from school_calendar.model import Entry
 from school_calendar.storage import Store
@@ -55,6 +57,7 @@ def local_only(origin):
 def local_desktop(store, invite):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
+
     from school_calendar.assistant_ui import AssistantSettings
     from school_calendar.window import CalendarWindow
 
@@ -120,9 +123,7 @@ def local_desktop(store, invite):
         assert panel.composer.text() == "Find my fictional exam."
         assert len(store.read().entries) == 1
         hosted.select("Personal")
-        assert (
-            config.project_key() == "fictional-local-private-key" and config.options()["mode"] == "GPT-5.4"
-        )
+        assert config.project_key() == "fictional-local-private-key" and config.options()["mode"] == "GPT-5.4"
         print(
             "Desktop activated a second device, used hosted lookup, reviewed and applied locally, edited a mock transcript and restored personal preferences."
         )
@@ -131,31 +132,34 @@ def local_desktop(store, invite):
         app.processEvents()
 
 
-def live(store, invite, folder):
-    # Use only this disposable profile, never a personal calendar or personal API key.
-    member = hosted.activate(invite, True, api.Cancellation())
-    hosted.select("Hosted", True)
-    key = hosted.credential()
-    print("Disposable device to revoke after this test:", key.split(".")[0], "member:", member)
+def fictional_lookup(store, respond):
+    """Only the synthetic row is accessible. Count submissions before sending; never replay a failed round."""
     store.save(Entry("Fictional violet exam", date(2040, 3, 12)))
-    turn = hosted.Turn(hosted.turn_id(), date.today())
+    tools = CalendarTools(store)
+    attempts = 0
 
     def bounded(bearer, body, cancel):
-        if turn.step >= 2:
-            raise RuntimeError("Fictional trial stopped at its two-request cap.")
-        return turn.respond(bearer, body, cancel)
+        nonlocal attempts
+        if attempts >= 2:
+            raise api.ApiError("Fictional trial stopped at its two-request cap.")
+        attempts += 1
+        return respond(body)
 
     text, plan, status = api.run(
-        CalendarTools(store),
-        key,
+        tools,
+        "hosted-probe",  # api.run uses the supplied transport; it never resolves a personal key.
         config.DEFAULTS,
         [],
         "Find the fictional violet exam by title. Reply with its ISO date.",
         api.Cancellation(),
         bounded,
     )
-    assert turn.step == 2 and "2040-03-12" in text and plan is None
-    print("Hosted lookup passed.", status)
+    if attempts != 2 or not tools.seen or "2040-03-12" not in text or plan is not None:
+        raise api.ApiError("Fictional lookup did not return the stored date through the read tool.")
+    return status
+
+
+def synthetic_wave(folder):
     command = """
 Add-Type -AssemblyName System.Speech
 $v=New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -171,10 +175,35 @@ try {
         check=True,
         capture_output=True,
         timeout=25,
-        env={k: v for k, v in os.environ.items() if not k.startswith("OPENAI_")},
+        env={k: os.environ[k] for k in os.environ if not k.upper().startswith("OPENAI_")},
     )
-    result = hosted.transcribe(key, (Path(folder) / "trial.wav").read_bytes(), api.Cancellation())
-    assert "tuesday" in result.lower()
+    audio = (Path(folder) / "trial.wav").read_bytes()
+    with wave.open(io.BytesIO(audio)) as stream:
+        if (stream.getnchannels(), stream.getsampwidth(), stream.getframerate(), stream.getcomptype()) != (
+            1,
+            2,
+            16000,
+            "NONE",
+        ) or not 0 < stream.getnframes() <= 5 * 16000:
+            raise ValueError("Synthetic recording is not mono 16 kHz PCM of at most five seconds.")
+        pcm = stream.readframes(stream.getnframes())
+        if len(pcm) != stream.getnframes() * 2:
+            raise ValueError("Incomplete synthetic recording.")
+    return audio, pcm
+
+
+def live(store, invite, folder):
+    member = hosted.activate(invite, True, api.Cancellation())
+    hosted.select("Hosted", True)
+    key = hosted.credential()
+    print("Disposable device to revoke after this test:", key.split(".")[0], "member:", member)
+    turn = hosted.Turn(hosted.turn_id(), date.today())
+    status = fictional_lookup(store, lambda body: turn.respond(key, body, api.Cancellation()))
+    print("Hosted lookup passed.", status)
+    audio, _ = synthetic_wave(folder)
+    result = hosted.transcribe(key, audio, api.Cancellation())
+    if "tuesday" not in result.lower():
+        raise api.ApiError("Unexpected synthetic transcript.")
     print("Hosted synthetic transcription passed. Posted billing is separate.")
 
 
@@ -196,10 +225,10 @@ if __name__ == "__main__":
     with (
         TemporaryDirectory(prefix="calendar-hosted-trial-") as folder,
         patch.dict(os.environ, {"LOCALAPPDATA": folder}),
+        closing(Store(Path(folder) / "fictional.sqlite3")) as store,
     ):
-        with closing(Store(Path(folder) / "fictional.sqlite3")) as store:
-            if args.mock_local:
-                with patch.object(api, "post", local_only(args.mock_local)):
-                    local_desktop(store, invite)
-            else:
-                live(store, invite, folder)
+        if args.mock_local:
+            with patch.object(api, "post", local_only(args.mock_local)):
+                local_desktop(store, invite)
+        else:
+            live(store, invite, folder)

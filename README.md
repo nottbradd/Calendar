@@ -73,6 +73,8 @@ Run the prototype installer or portable executable on Windows x64, or launch `py
 
 Open **Assistant** in the toolbar and type a request, such as “What assessments do I have next week?” Hold **Talk** and release to transcribe, or click **Talk** and choose **Stop**. **Cancel** discards the recording. The limit is 45 seconds. Edit the transcript, then choose **Send**. Voice capture uses Windows’ built-in waveform audio service.
 
+Hosted participant access is currently **closed**. The [owner-only probe record](docs/hosted-owner-probe.md) describes the fictional test, its measured usage and the status of the provider spending controls.
+
 Personal **Auto** routes routine requests to `gpt-6-luna` and constraint-heavy scheduling to `gpt-6.1-sol`. Personal settings also offer **Routine**, **Planning** and **GPT-5.4**. A turn can make up to four Responses requests, each capped at 1,800 output tokens in personal mode or 1,400 in hosted mode. Hosted model routing and spending ceilings are enforced by the service. The app displays available API usage and an estimated list-price cost. [Project sharing, retention, billing and fictional verification](docs/assistant-api.md)
 
 The assistant can find assessments, calculate days remaining, check free periods and prepare changes to up to twelve entries at once. It checks timed overlaps locally. A start with no end reserves the rest of the day for planning, and untimed assessments are reported separately. Review the proposed values and click **Apply** to save. If the calendar changes underneath the proposal, send the request again for a fresh review.

@@ -3,7 +3,7 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { build } from "esbuild";
 import { randomBytes, createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { migrate } from "./schema.mjs";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
@@ -78,8 +78,7 @@ async function run() {
   const addr = await mf.ready;
   assert.equal(addr.hostname, "127.0.0.1");
   const db = await mf.getD1Database("AI_DB");
-  const schema = await readFile(path("../migrations/0001_sponsored.sql"), "utf8");
-  for (const stmt of schema.split(/^-- next\r?$/m)) await db.prepare(stmt.trim()).run();
+  await migrate(db);
   await db.prepare("UPDATE policy SET paused=0").run();
   const people = Array.from({ length: 100 }, () => ({
     id: id(),

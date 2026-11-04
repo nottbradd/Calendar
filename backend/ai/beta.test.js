@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { before, after, beforeEach } from "node:test";
-import { readFile } from "node:fs/promises";
+import { migrate } from "./testing/schema.mjs";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { getPlatformProxy } from "wrangler";
@@ -70,8 +70,7 @@ before(async () => {
     persist: false,
   });
   db = proxy.env.AI_DB;
-  const sql = await readFile(new URL("./migrations/0001_sponsored.sql", import.meta.url), "utf8");
-  for (const statement of sql.split(/^-- next\r?$/m)) await db.prepare(statement.trim()).run();
+  await migrate(db);
 });
 after(async () => {
   await proxy?.dispose();
@@ -400,7 +399,11 @@ test("database, public errors and app diagnostics exclude content and secret mat
   const originals = Object.fromEntries(["log", "info", "debug", "warn", "error"].map((k) => [k, console[k]]));
   try {
     for (const k of Object.keys(originals)) console[k] = (...args) => logs.push(args);
-    upstream = () => Response.json({ error: { message: marker + " fake-service-only" } }, { status: 429 });
+    upstream = () =>
+      Response.json(
+        { error: { code: marker, type: marker, message: marker + " fake-service-only" } },
+        { status: 429 },
+      );
     const err = await call("chat", a, first(marker));
     assert.deepEqual(await err.json(), { error: "upstream_unavailable" });
     const pcm = new TextEncoder().encode(marker + "!"); // even-length synthetic bytes
@@ -416,4 +419,41 @@ test("database, public errors and app diagnostics exclude content and secret mat
     for (const secret of [marker, invite, a.token, "fake-service-only"]) assert.ok(!stored.includes(secret));
   }
   assert.equal(hits, 2);
+  const diagnostics = await db
+    .prepare("SELECT DISTINCT upstream_http,upstream_code,upstream_type FROM calls")
+    .all();
+  assert.deepEqual(diagnostics.results, [
+    { upstream_http: 429, upstream_code: "unrecognized", upstream_type: "unrecognized" },
+  ]);
+});
+
+test("a transcription denial exposes only safe owner diagnostics and keeps its full reservation", async () => {
+  const d = await enrolled();
+  upstream = () =>
+    Response.json(
+      { error: { code: "insufficient_permissions", type: "invalid_request_error", message: "private" } },
+      { status: 403 },
+    );
+  const req = { "X-Calendar-Request": turn() },
+    pcm = new Uint8Array(64000);
+  await reason(call("transcribe", d, pcm, req), "upstream_unavailable");
+  await reason(call("transcribe", d, pcm, req), "already_submitted");
+  assert.equal(hits, 1);
+  assert.deepEqual(
+    await db
+      .prepare("SELECT state,charge,upstream_http,upstream_code,upstream_type,audio_seconds FROM calls")
+      .first(),
+    {
+      state: "held",
+      charge: 60 * PRICES["gpt-transcribe"].second,
+      upstream_http: 403,
+      upstream_code: "insufficient_permissions",
+      upstream_type: "invalid_request_error",
+      audio_seconds: null,
+    },
+  );
+  assert.equal(
+    await db.prepare("SELECT amount FROM totals WHERE bucket='lifetime'").first("amount"),
+    60 * PRICES["gpt-transcribe"].second,
+  );
 });

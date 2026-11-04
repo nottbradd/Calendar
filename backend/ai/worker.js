@@ -14,6 +14,47 @@ export const PRICES = {
 const MAX_OUTPUT = 1400,
   MAX_CHAT = 32768,
   MAX_AUDIO = 45 * 32000;
+function chatReservation(length, step, p) {
+  return (
+    (length + 4096 + step * (MAX_OUTPUT + 256)) * Math.max(p.input, p.cached, p.write) + MAX_OUTPUT * p.output
+  );
+}
+const audioReservation = (p) => 60 * p.second;
+// The owner preflight imports the same limits, prices and arithmetic as admissions.
+export function probeReservations() {
+  return {
+    first: chatReservation(MAX_CHAT, 0, PRICES[ROUTINE]),
+    continuation: chatReservation(MAX_CHAT, 1, PRICES[ROUTINE]),
+    audio: audioReservation(PRICES[SPEECH]),
+  };
+}
+// Keep provider diagnostics in owner-only D1. Never persist arbitrary codes, messages or IDs.
+const safeCodes = new Set([
+  "insufficient_permissions",
+  "insufficient_permission",
+  "permission_denied",
+  "permission_error",
+  "missing_scope",
+  "missing_scopes",
+  "missing_required_scope",
+  "forbidden",
+  "access_denied",
+  "restricted_api_key",
+  "invalid_api_key",
+  "model_not_found",
+  "model_not_allowed",
+  "insufficient_quota",
+  "credit_balance_exhausted",
+  "project_spend_limit_exceeded",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "rate_limit_exceeded",
+  "invalid_request_error",
+  "authentication_error",
+  "server_error",
+  "unsupported_model",
+]);
+const safeField = (value) => (value == null ? "not_provided" : safeCodes.has(value) ? value : "unrecognized");
 const planPattern =
   /\b(keep|fixed|constraints?|conflicts?|overlap\w*|without|around|both|prioriti[sz]\w*|optimis\w*|optimiz\w*|push|fit|several|multiple|rearrange|reschedule all|move all|schedule all)\b/i;
 const failures = {
@@ -266,9 +307,7 @@ async function chat(db, request, member, device, now, prices) {
   requireThat(length <= MAX_CHAT, "too_large");
   // Reserve at the most expensive input rate, one token per UTF-8 byte, plus
   // framing and headroom for prior reasoning. Reserve the entire output cap.
-  const reserve =
-    (length + 4096 + step * (MAX_OUTPUT + 256)) * Math.max(p.input, p.cached, p.write) +
-    MAX_OUTPUT * p.output;
+  const reserve = chatReservation(length, step, p);
   return { turn, step, model, prior, seconds: 0, reserve, p, body, date, zone, input, endpoint: "responses" };
 }
 async function speech(request, now, prices) {
@@ -289,7 +328,7 @@ async function speech(request, now, prices) {
     model: SPEECH,
     prior: null,
     seconds,
-    reserve: 60 * p.second,
+    reserve: audioReservation(p),
     p,
     body,
     endpoint: "audio/transcriptions",
@@ -354,16 +393,32 @@ async function handle(request, env, fetchUpstream, clock, prices) {
   // reservation intact. Never retry an upstream POST.
   const headers = { Authorization: "Bearer " + env.OPENAI_SERVICE_KEY };
   if (!call.seconds) headers["Content-Type"] = "application/json";
-  let result;
+  let result, upstream;
   try {
-    const upstream = await fetchUpstream("https://api.openai.com/v1/" + call.endpoint, {
+    upstream = await fetchUpstream("https://api.openai.com/v1/" + call.endpoint, {
       method: "POST",
       headers,
       body: call.body,
-      redirect: "error",
+      // workerd supports manual/follow only. Treat every 3xx as a rejection below;
+      // never follow a Location or forward the service credential to another host.
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
     });
-    requireThat(upstream.ok, "upstream_unavailable");
+    if (!upstream.ok) {
+      let error;
+      try {
+        error = JSON.parse(new TextDecoder().decode(await bytes(upstream, 8192)))?.error;
+      } catch {
+        /* The HTTP status is still useful on an empty, large or non-JSON rejection. */
+      }
+      await db
+        .prepare(
+          "UPDATE calls SET upstream_http=?,upstream_code=?,upstream_type=? WHERE member=? AND turn=? AND step=? AND state='held'",
+        )
+        .bind(upstream.status, safeField(error?.code), safeField(error?.type), who.id, call.turn, call.step)
+        .run();
+      throw new Denied("upstream_unavailable"); // No usage receipt: retain the full reservation.
+    }
     result = JSON.parse(new TextDecoder().decode(await bytes(upstream, 350000)));
   } catch {
     throw new Denied("upstream_unavailable");
@@ -388,7 +443,7 @@ async function handle(request, env, fetchUpstream, clock, prices) {
   }
   const settled = await db
     .prepare(
-      "UPDATE calls SET state=?,charge=?,continuation=?,input_tokens=?,output_tokens=?,audio_seconds=? WHERE member=? AND turn=? AND step=? AND state='held' RETURNING state",
+      "UPDATE calls SET state=?,charge=?,continuation=?,input_tokens=?,output_tokens=?,audio_seconds=?,upstream_http=? WHERE member=? AND turn=? AND step=? AND state='held' RETURNING state",
     )
     .bind(
       meter ? "measured" : "conservative",
@@ -397,6 +452,7 @@ async function handle(request, env, fetchUpstream, clock, prices) {
       meter?.input ?? null,
       meter?.output ?? null,
       meter?.seconds ?? null,
+      upstream.status,
       who.id,
       call.turn,
       call.step,
