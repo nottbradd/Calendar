@@ -31,6 +31,47 @@ class AssistantPanelTests(unittest.TestCase):
             QTest.qWait(15)
         self.assertTrue(condition())
 
+    def test_billing_429_shows_specific_remedy_and_preserves_draft_after_one_request(self):
+        folder = self.enterContext(TemporaryDirectory())
+        store = self.enterContext(closing(Store(Path(folder) / "calendar.sqlite3")))
+        store.save(Entry("Fictional chemistry report", date(2031, 4, 14)))
+        before = store.read()
+        self.enterContext(patch("school_calendar.assistant_config.project_key", return_value="sample-key"))
+        self.enterContext(patch("school_calendar.assistant_config.options", return_value=DEFAULTS))
+        window = CalendarWindow(store)
+        self.addCleanup(window.close)
+        window.show()
+        window.assistant_button.click()
+        panel = window.assistant_panel
+        draft = "Delete the fictional chemistry report."
+        panel.composer.setText(draft)
+
+        for code, cause, remedy in (
+            ("credit_balance_exhausted", "prepaid", "add credits"),
+            ("project_spend_limit_exceeded", "spend limit", "project settings"),
+            ("organization_spend_limit_exceeded", "spend limit", "organization settings"),
+            ("organization_usage_limit_exceeded", "openai-assigned", "higher approved limit"),
+        ):
+            with self.subTest(code=code), patch.object(api.http.client, "HTTPSConnection") as connection:
+                http = connection.return_value
+                reply = http.getresponse.return_value
+                reply.status = 429
+                # The API can use this same broad type for all four billing codes.
+                reply.read.return_value = json.dumps(
+                    {"error": {"type": "insufficient_quota", "code": code}}
+                ).encode()
+                panel.send_button.click()
+                self.wait_for(lambda: panel.token is None)
+                http.request.assert_called_once()
+                self.assertEqual(panel.composer.text(), draft)
+                self.assertFalse(panel.composer.isReadOnly())
+                self.assertTrue(panel.send_button.isEnabled())
+                self.assertIsNone(panel.plan)
+                self.assertEqual(store.read(), before)
+                hint = panel.status.text().lower()
+                self.assertIn(cause, hint)
+                self.assertIn(remedy, hint)
+
     def test_failed_send_discard_stale_refresh_and_apply(self):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)

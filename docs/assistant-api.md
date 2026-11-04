@@ -22,7 +22,14 @@ Standard text prices checked on 4 November 2026, in USD per million tokens, and 
 
 ## Verify a project with fictional samples
 
-On 4 November 2026, the desktop tests exercised Responses tool calls and transcription using mocked replies. Windows generated a 3.16-second fictional speech WAV for the live probe. No project key was configured during verification, so the probe stopped before making a request. Model access, live transcription quality, actual charges and this project’s complimentary allowance still need verification. Microphone capture hardware was enumerated but physical speech input was not tested.
+Both live checks passed with fictional data on 4 November 2026.
+
+- **Function calling.** `gpt-6-luna` requested the fictional exam lookup and returned the date supplied by the tool. The API reported **344 tokens across two requests** (315 input and 29 output).
+- **Transcription.** `gpt-transcribe` correctly transcribed “Tuesday” from the 3.16-second synthetic recording. The API reported **4 seconds** of audio usage.
+
+The **estimated combined cost at Standard list prices was US$0.00035**, rounded. Posted charges, credit application and complimentary-token coverage remain unverified.
+
+In separate mocked HTTP tests, each billing failure left the typed draft editable and the calendar unchanged after one request. A transcription credit error also preserved the draft. Actual microphone testing and the [physical two-PC sync trial](../backend/README.md#trial-on-two-windows-pcs) are still outstanding.
 
 From the repository root on Windows, use the project’s virtual environment. The first command generates a short WAV locally using the Windows speech synthesizer, validates it and deletes the temporary file. The second explicitly sends up to two Responses requests and one transcription request using the configured project key. The only sample lookup concerns a fictional violet exam. Neither command reads your calendar or uses your microphone.
 

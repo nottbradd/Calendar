@@ -231,28 +231,34 @@ class AssistantApiTests(unittest.TestCase):
         self.assertFalse(self.store.read().entries)
 
     def test_http_failures_are_safe_and_distinguishable(self):
-        for status, code, match in [
-            (401, "invalid_api_key", "key"),
-            (403, "permission_denied", "access"),
-            (404, "model_not_found", "model"),
-            (429, "rate_limit_exceeded", "rate limit"),
-            (429, "insufficient_quota", "quota"),
-            (500, "internal_server_error", "500"),
+        for status, code, error_type, match in [
+            (401, "invalid_api_key", None, "key"),
+            (403, "permission_denied", None, "access"),
+            (404, "model_not_found", None, "model"),
+            (429, "rate_limit_exceeded", "tokens", "rate limit"),
+            (429, "slow_down", "rate_limit_error", "rate limit"),
+            (429, "insufficient_quota", None, "quota"),
+            (400, "billing_hard_limit_reached", None, "billing"),
+            (429, None, "insufficient_quota", "quota"),
+            (429, None, "rate_limit_error", "rate limit"),
+            (429, "unrecognized_code", None, "HTTP 429"),
+            (500, "internal_server_error", None, "500"),
         ]:
             with (
-                self.subTest(status=status, code=code),
+                self.subTest(status=status, code=code, error_type=error_type),
                 patch.object(api.http.client, "HTTPSConnection") as connection,
             ):
                 conn = connection.return_value
                 res = conn.getresponse.return_value
                 res.status = status
                 res.read.return_value = json.dumps(
-                    {"error": {"code": code, "message": "untrusted remote detail"}}
+                    {"error": {"code": code, "type": error_type, "message": "untrusted remote detail"}}
                 ).encode()
                 with self.assertRaisesRegex(api.ApiError, match) as caught:
                     api.response("fake-key", {}, api.Cancellation())
                 self.assertNotIn("untrusted remote detail", str(caught.exception))
                 self.assertNotIn("fake-key", str(caught.exception))
+                conn.request.assert_called_once()
                 conn.close.assert_called_once()
         with patch.object(api.http.client, "HTTPSConnection") as connection:
             connection.return_value.request.side_effect = TimeoutError()

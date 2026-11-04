@@ -63,7 +63,11 @@ class AssistantVoiceUITests(unittest.TestCase):
         self.recorder = SampleRecorder()
         self.enterContext(patch.object(assistant_ui, "Recorder", return_value=self.recorder))
         self.network = self.enterContext(
-            patch.object(assistant_ui.api, "post", side_effect=AssertionError("Network disabled"))
+            patch.object(
+                assistant_ui.api.http.client,
+                "HTTPSConnection",
+                side_effect=AssertionError("Network disabled"),
+            )
         )
 
     def wait(self, predicate):
@@ -108,14 +112,20 @@ class AssistantVoiceUITests(unittest.TestCase):
     def test_failed_transcription_preserves_draft_and_allows_retry(self):
         panel = self.panel
         panel.composer.setText("Keep this draft")
-        with patch.object(
-            assistant_ui.api, "transcribe", side_effect=assistant_ui.api.ApiError("Transcription failed.")
-        ):
-            panel.mic_button.click()
-            self.wait(self.recorder.started.is_set)
-            panel.stop_button.click()
-            self.wait(lambda: panel.token is None)
-        self.assertEqual(panel.status.text(), "Transcription failed.")
+        self.network.side_effect = None
+        http = self.network.return_value
+        reply = http.getresponse.return_value
+        reply.status = 429
+        reply.read.return_value = (
+            b'{"error":{"type":"insufficient_quota","code":"credit_balance_exhausted"}}'
+        )
+        panel.mic_button.click()
+        self.wait(self.recorder.started.is_set)
+        panel.stop_button.click()
+        self.wait(lambda: panel.token is None)
+        http.request.assert_called_once()
+        self.assertEqual(http.request.call_args.args[:2], ("POST", "/v1/audio/transcriptions"))
+        self.assertIn("add credits", panel.status.text().lower())
         self.assertEqual(panel.composer.text(), "Keep this draft")
         self.assertTrue(panel.mic_button.isEnabled())
         self.assertTrue(panel.send_button.isEnabled())

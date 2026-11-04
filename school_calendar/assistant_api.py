@@ -91,6 +91,53 @@ class ApiError(ValueError):
     pass
 
 
+_BILLING_MESSAGES = {
+    "credit_balance_exhausted": (
+        "OpenAI reports that your organization's prepaid credits are exhausted. "
+        "An organization owner can add credits in billing settings."
+    ),
+    "project_spend_limit_exceeded": (
+        "This project reached its monthly spend limit. Wait for the monthly reset "
+        "or ask an owner to raise the limit in project settings."
+    ),
+    "organization_spend_limit_exceeded": (
+        "Your organization reached its monthly spend limit. Wait for the monthly reset "
+        "or ask an owner to raise the limit in organization settings."
+    ),
+    "organization_usage_limit_exceeded": (
+        "Your organization reached its OpenAI-assigned usage limit. "
+        "Request a higher approved limit from OpenAI or contact support."
+    ),
+    "insufficient_quota": "OpenAI reported insufficient quota. Check organization billing and project limits.",
+    "billing_hard_limit_reached": "The API billing hard limit was reached. Review your billing limits.",
+}
+
+
+def _error_message(status, error):
+    details = error if isinstance(error, dict) else {}
+    code = details.get("code")
+    if isinstance(code, str) and code in _BILLING_MESSAGES:
+        return _BILLING_MESSAGES[code]
+    if status == 429:
+        # The same broad error type can accompany different, more specific codes.
+        kind = details.get("type")
+        if code in ("rate_limit_exceeded", "slow_down") or kind in (
+            "rate_limit_error",
+            "tokens",
+            "requests",
+        ):
+            return "OpenAI rate limit reached. Wait before sending another request."
+        if kind == "insufficient_quota":
+            return _BILLING_MESSAGES["insufficient_quota"]
+        return "OpenAI limited this request (HTTP 429). Check project limits and organization billing."
+    messages = {
+        401: "The project API key was rejected. Replace it in Settings.",
+        403: "The project does not have access to this request or model.",
+        404: "The requested model is unavailable for this project. Choose a model in Settings.",
+    }
+    return messages.get(status, f"OpenAI declined the request (HTTP {status}).")
+
+
 class Cancellation(threading.Event):
     def __init__(self):
         super().__init__()
@@ -135,19 +182,7 @@ def post(key, path, body, mime, cancel):
         if not isinstance(payload, dict):
             payload = {}
         if response.status != 200:
-            err = payload.get("error") or {}
-            code = err.get("code") if isinstance(err, dict) else None
-            if code in ("insufficient_quota", "billing_hard_limit_reached"):
-                raise ApiError("The project has no available quota. Check its billing and limits.")
-            messages = {
-                401: "The project API key was rejected. Replace it in Settings.",
-                403: "The project does not have access to this request or model.",
-                404: "The requested model is unavailable for this project. Choose a model in Settings.",
-                429: "Project rate limit reached. Wait before trying again.",
-            }
-            raise ApiError(
-                messages.get(response.status, f"OpenAI declined the request (HTTP {response.status}).")
-            )
+            raise ApiError(_error_message(response.status, payload.get("error")))
         return payload
     except (OSError, http.client.HTTPException) as exc:
         cancel.check()
