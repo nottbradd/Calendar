@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QButtonGroup, QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout
 
 from . import APP_NAME
+from .assistant_ui import AssistantPanel, AssistantSettings
 from .agenda import EntryList
 from .appearance import Backdrop, button, glass_panel, label, motion_enabled
 from .dialogs import DayDetails, EntryDetails, EntryEditor
@@ -30,6 +31,7 @@ class CalendarWindow(QMainWindow):
         self.show_completed = False
         self.compact_agenda_open = False
         self._closing = False
+        self.assistant_panel = None
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(760, 516)
         area = QApplication.primaryScreen().availableGeometry()
@@ -109,6 +111,9 @@ class CalendarWindow(QMainWindow):
         self.today_text = label("", "muted")
         top.addWidget(self.today_text)
         top.addSpacing(6)
+        self.assistant_button = button("Assistant")
+        self.assistant_button.clicked.connect(self.open_assistant)
+        top.addWidget(self.assistant_button)
         self.settings_button = button("Settings", "", "settings")
         self.settings_button.setAccessibleName("Settings")
         self.settings_button.setToolTip("Settings (Ctrl+,)")
@@ -233,6 +238,8 @@ class CalendarWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "settings_button"):
             self._toolbar_size()
+        if self.assistant_panel and self.assistant_panel.isVisible():
+            self.assistant_panel.position()
 
     def switch_view(self, view):
         if view == self.snapshot.view:
@@ -290,6 +297,8 @@ class CalendarWindow(QMainWindow):
             self.read_error.show()
             return
         self.read_error.hide()
+        if self.assistant_panel:
+            self.assistant_panel.check_scope()
         if current != self.snapshot:
             self.snapshot = current
             self.select(self.selected)
@@ -320,12 +329,24 @@ class CalendarWindow(QMainWindow):
         self.select(day)
         self.open_editor(day, Entry("", day, at=at))
 
+    def open_assistant(self):
+        if self.assistant_panel is None:
+            self.assistant_panel = AssistantPanel(self)
+        self.assistant_panel.check_scope()
+        self.assistant_panel.position()
+        self.assistant_panel.show()
+        self.assistant_panel.composer.setFocus()
+
     def open_settings(self):
         dialog = SettingsDialog(self, self.store, self.snapshot.colours)
         dialog.subjects_changed.connect(self.reload)
         def open_sync():
             dialog.accept()
             self._present(SyncDialog(self, self.sync_control))
+        def open_assistant_settings():
+            dialog.accept()
+            self._present(AssistantSettings(self))
+        dialog.assistant_requested.connect(open_assistant_settings)
         dialog.sync_requested.connect(open_sync)
         self._present(dialog)
 
@@ -356,6 +377,8 @@ class CalendarWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
+        if self.assistant_panel:
+            self.assistant_panel.dismiss()
         self.sync_control.close()
         self.day_timer.stop()
         super().closeEvent(event)

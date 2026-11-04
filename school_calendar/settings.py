@@ -12,6 +12,7 @@ from .storage import Store, StoreError
 class SettingsDialog(PlannerDialog):
     subjects_changed = Signal()
     sync_requested = Signal()
+    assistant_requested = Signal()
 
     def __init__(self, parent, store: Store, colours):
         super().__init__(parent, "Settings")
@@ -23,6 +24,9 @@ class SettingsDialog(PlannerDialog):
         heading.addWidget(self.count, 0, Qt.AlignmentFlag.AlignVCenter)
         self.sync_button = button("Sync…")
         self.sync_button.clicked.connect(self.sync_requested)
+        self.assistant_button = button("Assistant…")
+        self.assistant_button.clicked.connect(self.assistant_requested)
+        heading.addWidget(self.assistant_button)
         heading.addWidget(self.sync_button)
         self.body.addLayout(heading)
         self.subjects = QListWidget()

@@ -210,32 +210,36 @@ class Store:
             entry = entry.cleaned()
             with self.db:
                 self.db.execute("BEGIN IMMEDIATE")
-                subject_key = self._subject_key(entry.subject)
-                if subject_key is None and entry.revision:
-                    # The editor and completion action see a blank label for a hidden subject.
-                    hidden = self.db.execute("""SELECT e.subject_key FROM entries e JOIN subjects s ON s.key=e.subject_key
-                                                WHERE e.id=? AND s.hidden=1""", (entry.id,)).fetchone()
-                    subject_key = hidden[0] if hidden else None
-                values = (
-                    entry.title, entry.day.isoformat(), entry.at.isoformat(timespec="minutes") if entry.at else None,
-                    entry.end_at.isoformat(timespec="minutes") if entry.end_at else None,
-                    subject_key, entry.kind, entry.custom_kind, entry.notes,
-                    int(entry.completed), entry.id,
-                )
-                if entry.revision == 0:
-                    self.db.execute("""
-                        INSERT INTO entries (title, day, at, end_at, subject_key, kind, custom_kind, notes, completed, id, revision)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                    """, values)
-                else:
-                    result = self.db.execute("""
-                        UPDATE entries SET title=?, day=?, at=?, end_at=?, subject_key=?, kind=?, custom_kind=?,
-                        notes=?, completed=?, revision=revision+1 WHERE id=? AND revision=?
-                    """, (*values, entry.revision))
-                    self._check_changed(result)
-                journal.record(self.db, "e:" + entry.id, journal.entry_value(next(self.stored_entries(entry.id))))
+                self._save_entry(entry)
         except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not save this entry. {exc}") from exc
+
+    def _save_entry(self, entry: Entry) -> None:
+        """Write inside the caller’s transaction."""
+        subject_key = self._subject_key(entry.subject)
+        if subject_key is None and entry.revision:
+            # The editor and completion action see a blank label for a hidden subject.
+            hidden = self.db.execute("""SELECT e.subject_key FROM entries e JOIN subjects s ON s.key=e.subject_key
+                                        WHERE e.id=? AND s.hidden=1""", (entry.id,)).fetchone()
+            subject_key = hidden[0] if hidden else None
+        values = (
+            entry.title, entry.day.isoformat(), entry.at.isoformat(timespec="minutes") if entry.at else None,
+            entry.end_at.isoformat(timespec="minutes") if entry.end_at else None,
+            subject_key, entry.kind, entry.custom_kind, entry.notes,
+            int(entry.completed), entry.id,
+        )
+        if entry.revision == 0:
+            self.db.execute("""
+                INSERT INTO entries (title, day, at, end_at, subject_key, kind, custom_kind, notes, completed, id, revision)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """, values)
+        else:
+            result = self.db.execute("""
+                UPDATE entries SET title=?, day=?, at=?, end_at=?, subject_key=?, kind=?, custom_kind=?,
+                notes=?, completed=?, revision=revision+1 WHERE id=? AND revision=?
+            """, (*values, entry.revision))
+            self._check_changed(result)
+        journal.record(self.db, "e:" + entry.id, journal.entry_value(next(self.stored_entries(entry.id))))
 
     @staticmethod
     def _check_changed(result: sqlite3.Cursor) -> None:
@@ -245,11 +249,15 @@ class Store:
     def delete(self, entry: Entry) -> None:
         try:
             with self.db:
-                result = self.db.execute("DELETE FROM entries WHERE id=? AND revision=?", (entry.id, entry.revision))
-                self._check_changed(result)
-                journal.record(self.db, "e:" + entry.id, None)
+                self._delete_entry(entry)
         except (sqlite3.Error, ValueError) as exc:
             raise StoreError(f"Could not delete this entry. {exc}") from exc
+
+    def _delete_entry(self, entry: Entry) -> None:
+        """Write inside the caller’s transaction."""
+        result = self.db.execute("DELETE FROM entries WHERE id=? AND revision=?", (entry.id, entry.revision))
+        self._check_changed(result)
+        journal.record(self.db, "e:" + entry.id, None)
 
     def close(self) -> None:
         self.db.close()

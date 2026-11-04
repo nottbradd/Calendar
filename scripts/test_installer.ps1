@@ -77,6 +77,12 @@ function Test-InstalledApp([bool]$createEntry) {
         $type = [System.Windows.Automation.ControlType]
         $invoke = [System.Windows.Automation.InvokePattern]::Pattern
         if ($createEntry) {
+            (Find-Control $p.Id 'Assistant' $type::Button).GetCurrentPattern($invoke).Invoke()
+            $null = Find-Control $p.Id 'Send' $type::Button
+            $null = Find-Control $p.Id 'Talk' $type::Button
+            (Find-Control $p.Id 'Assistant settings' $type::Button).GetCurrentPattern($invoke).Invoke()
+            $null = Find-Control $p.Id 'Model routing' $type::ComboBox
+            (Find-Control $p.Id 'Save settings' $type::Button).GetCurrentPattern($invoke).Invoke()
             (Find-Control $p.Id 'Add entry' $type::Button).GetCurrentPattern($invoke).Invoke()
             (Find-Control $p.Id 'Title *' $type::Edit).GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($sample)
             (Find-Control $p.Id 'Save entry' $type::Button).GetCurrentPattern($invoke).Invoke()

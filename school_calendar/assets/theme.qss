@@ -75,3 +75,6 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
 QHeaderView::section { background: transparent; color: #475d68; border: none; border-bottom: 1px solid rgba(87, 110, 122, 45); font-size: 14px; font-weight: 600; }
 QToolTip { color: #f6fafb; background: #314650; border: none; padding: 5px; }
+
+QFrame#assistantDrawer { background: rgba(243,247,249,249); border: 1px solid #bccbd4; border-radius: 12px; }
+QFrame#assistantDrawer QPlainTextEdit { background: rgba(255,255,255,185); border: 1px solid #d2dce1; border-radius: 7px; padding: 7px; }
