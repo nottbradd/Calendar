@@ -2,9 +2,29 @@
 
 The hosted option lets an invited person use typed chat and push-to-talk with an owner-funded OpenAI project. Windows protects each device's assistant credential with DPAPI. Personal project keys, model preferences, the local calendar and encrypted sync credentials remain separate. Choose **Settings → Assistant → Hosted beta**, read the data notice, accept it, enter the private invitation, activate the PC and save. **Personal project key** remains the default for new and upgraded installations.
 
-The Worker is [calendar-ai-beta](https://calendar-ai-beta.nottbradd.workers.dev/health). Its only D1 binding is `AI_DB`, connected to `calendar-ai-beta`. The deployment starts paused. Health reads the pause flag from D1. The public service has no owner endpoints and no access to the sync database.
+The Worker is [calendar-ai-beta](https://calendar-ai-beta.nottbradd.workers.dev/health). Its only D1 binding is `AI_DB`, connected to `calendar-ai-beta`. A new database starts paused. Health reads the pause flag and the credit deadline from D1. The public service has no owner endpoints and no access to the sync database.
 
-**Participant access is closed.** The dedicated Calendar beta project has input/output sharing disabled. Its US$10 monthly provider cap was saved but enforcement read back **inactive** twice. Spend alerts returned HTTP 400 `paid_plan_required`. These are not working provider safeguards. Do not use `resume --private-project-verified` under these conditions.
+**The initial credit-funded beta is limited to five active identities, including the owner.** The dedicated Calendar beta project has input/output sharing disabled. Its US$10 monthly provider cap was saved but enforcement read back **inactive** twice. Spend alerts returned HTTP 400 `paid_plan_required`. These are not working provider safeguards. Do not use `resume --private-project-verified` under these conditions. The distinct credit activation below relies on the Worker's own reservations, shared ceilings and grant deadline. See the [Windows setup guide and deployment record](../../docs/credit-beta.md).
+
+## Enable the limited credit-funded beta
+
+The owner must inspect the grant and supply its checked expiry date explicitly. The observed grant expires **26 November 2026**, so new sponsored chat and transcription are rejected at **00:00 UTC on 26 November 2026**, including uploads that arrive across the boundary. The D1 admission transaction independently checks its server clock. Health and device status report paused after expiry even if the stored pause switch is off. A request already submitted to OpenAI can finish. No code renews the grant, purchases credit, enables paid billing or changes sharing.
+
+Pause before migration or changing the grant window. Inspect usage and existing members first. Apply migrations and deploy the reviewed Worker, then use this separate command only after the grant review:
+
+~~~powershell
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote usage
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote members
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote pause
+# Apply the reviewed AI migrations and deploy while paused, as documented below.
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote credit-beta --grant-expires 2026-11-26 --grant-reviewed
+~~~
+
+This command atomically selects credit mode, sets at most five seats and estimated ceilings of **US$0.25 per UTC day, US$1 per UTC month and US$1 cumulatively**, then unpauses. It preserves any stricter owner limits, individual allowances, all usage, reservations and identities. Activation refuses an expired grant, an active owner-probe lock, more approved people than the limited capacity, exhausted spending buckets or missing database guards. It never resets the ledger or creates an invitation. A failure before the database commit leaves the old paused policy; a lost reply after commit leaves only the complete limited policy. Run `usage` after an interrupted command rather than assuming it failed or selecting normal activation.
+
+Database constraints prevent increasing credit-mode capacity or spending above these bounds. To continue after expiry, pause, check a replacement grant and explicitly run `credit-beta --grant-expires YYYY-MM-DD --grant-reviewed` with its verified date. The same cumulative accounting and ceilings remain in effect. Do not assume a replacement grant. The existing normal activation path below still requires its separate provider checks and remains capable of the original 100-person design; entering it requires a paused service and does not automatically restore broader limits.
+
+The service key expires **4 December 2026**. Its later expiry does not extend the grant. Posted charges and grant application remain unverified. A shared budget can stop an individual before their personal allowance is exhausted.
 
 ## Owner-only verification
 
@@ -83,7 +103,7 @@ Invitations contain 256 random bits, expire after ten minutes by default (config
 .\.venv\Scripts\python.exe backend/ai/owner.py --target remote devices MEMBER_ID
 .\.venv\Scripts\python.exe backend/ai/owner.py --target remote revoke-device DEVICE_ID
 .\.venv\Scripts\python.exe backend/ai/owner.py --target remote revoke-user MEMBER_ID
-.\.venv\Scripts\python.exe backend/ai/owner.py --target remote limit day_cap 1
+.\.venv\Scripts\python.exe backend/ai/owner.py --target remote pause
 .\.venv\Scripts\python.exe backend/ai/owner.py --target remote usage
 .\.venv\Scripts\python.exe backend/ai/metrics.py
 ~~~
@@ -92,14 +112,17 @@ Invitations contain 256 random bits, expire after ten minutes by default (config
 
 ## Ceilings and accounting
 
-| Owner setting | Default |
-| --- | --- |
-| `seats` | 100 active identities |
-| `turns` | 20 submitted chat turns per person per UTC day |
-| `planning` | 1 planning turn per person per UTC day, included in the 20 |
-| `rounds` | 4 upstream Responses requests per turn |
-| `seconds` | 120 seconds of transcription per person per UTC day, maximum 45 seconds per clip |
-| `day_cap`, `month_cap`, `lifetime_cap` | US$1 per UTC day, US$10 per UTC calendar month, US$80 across all time |
+| Owner setting | Initial credit-funded beta | Original normal defaults |
+| --- | --- | --- |
+| `seats` | 5 active identities, including the owner | 100 active identities |
+| `turns` | 20 submitted chat turns per person per UTC day | Same |
+| `planning` | 1 planning turn per person per UTC day, included in the 20 | Same |
+| `rounds` | 4 upstream Responses requests per turn | Same |
+| `seconds` | 120 seconds per person per UTC day, maximum 45 seconds per clip | Same |
+| `day_cap` | US$0.25 per UTC day | US$1 |
+| `month_cap` | US$1 per UTC calendar month | US$10 |
+| `lifetime_cap` | US$1 across all time, including prior spend and holds | US$80 |
+| `credit_expires` | 26 November 2026 at 00:00 UTC | Not used |
 
 A shared ceiling can stop an individual below their allowance. Requests can be denied early when the remaining budget cannot cover a conservative reservation. Pausing blocks new model and audio requests while allowing status checks and owner-issued enrollment. No process purchases credit or raises these ceilings.
 
@@ -113,11 +136,13 @@ Retrying the same request cannot submit it or count it twice. After an ambiguous
 
 Messages, limited recent conversation and results of selected local calendar queries pass through the Worker to OpenAI. Submitted audio follows the same route. The desktop owns calendar lookups, proposal review, stale-plan and duplicate-Apply checks, and transactional saves. An assistant invitation cannot join an encrypted calendar. The Worker holds no sync keys. The Responses API uses `store: false`. Provider-side abuse monitoring can still apply. Application request logging, Worker observability and preview URLs are disabled. No application logs or D1 columns contain messages, tool results, transcripts or audio. [OpenAI endpoint retention](https://developers.openai.com/api/docs/guides/your-data)
 
-D1 keeps opaque member/device IDs, credential and invitation hashes, revocation state, request IDs, model, usage and bounded continuation hashes. Daily pruning runs at 03:17 UTC. Expired invitations are removed, consumed invitations are deleted at enrollment, and per-request records are removed once their UTC date is more than seven days old. Per-person/day counters and daily shared totals are retained for 35 days, and monthly totals for about 400 days. Lifetime spend survives pruning, including uncertain reservations. Enrolled identities and device revocations remain for the beta's lifetime to preserve entitlements and prevent credential reuse. Infrastructure backups and provider telemetry follow their respective retention policies.
+D1 keeps opaque member/device IDs, credential and invitation hashes, revocation state, request IDs, model, usage and bounded continuation hashes. Daily pruning runs at 03:17 UTC. Expired invitations are removed and consumed invitations are deleted at enrollment. **Credit mode retains every request, per-person/day counter and shared spending bucket, including after grant expiry**, so the full ledger remains available for review. Normal mode removes per-request records once their UTC date is more than seven days old, keeps per-person/day counters and daily totals for 35 days, and monthly totals for about 400 days. Lifetime spend survives normal pruning, including uncertain reservations. Enrolled identities and device revocations remain for the beta's lifetime to preserve entitlements and prevent credential reuse. Infrastructure backups and provider telemetry follow their respective retention policies.
 
 ## Verification and capacity
 
 From `backend`, run `npm ci`, `npm test`, then `npm run ai:load`. On Windows the last command uses the repository's Python environment for the Qt integration check. The load harness runs a local workerd with disposable D1, a mock OpenAI service and outbound traffic blocked. To run the full desktop sync regressions, start the local sync Worker on port 18787 following the [sync trial instructions](../README.md), set `CALENDAR_LOCAL_UI_TRIAL=1` and run `python -m unittest discover -s tests -v` from the root.
+
+Run `node ai/testing/load.mjs --credit --desktop` from `backend` for the five-person policy and installed-app-compatible hosted UI path. This checks a second device on an existing identity, chat, locally reviewed changes and an editable mock transcript without contacting OpenAI. The credit activation tests also cover database reopen, interrupted owner commands, exact expiry, missing enforcement, all three dollar ceilings, existing holds and failure handling. The production transport regression remains part of `node --test`.
 
 On 4 November 2026 the local simulation enrolled **100 fictional people** and used bursts of **20**. It ran 100 two-round routine lookups, ten planning turns and five three-second clips. All **315 Worker requests** succeeded, including **215 mocked upstream requests**. D1 reported **18,891 rows read** and **3,269 rows written** for that workload, excluding fixture creation. Two complete runs took 2.34–3.76 s with p95 request latency of 177–276 ms. The Windows workerd processes used 1,329–1,828 ms of CPU, averaging 4.22–5.80 ms per Worker request, including the local D1 emulator. These averages include only local execution. The synthetic estimated spend was US$0.057125. No paid API was called. A separate Qt integration check enrolled another device to an existing identity, used a tool round, kept a pending review and applied it with the transport offline, edited a mock transcript and restored personal settings.
 
@@ -125,4 +150,4 @@ The owner confirmed Workers Free for this account. Its daily allowances are shar
 
 The deployed Worker passed D1 health, real desktop enrollment in a disposable profile, invitation reuse rejection, unauthenticated access rejection, paused chat and revocation. The fictional identity was revoked. D1 then reported zero upstream requests and zero estimated spend. The separate sync Worker also passed its health check. At 07:01 UTC the account-wide analytics reported 26 Worker requests, zero Worker errors, 103 rows read and 71 written across D1. Cloudflare reported 11 requests with zero Worker errors for the deployed beta through 07:06 UTC. CPU was 1.499 ms at p50 and 4.618 ms at p99. These 11 requests exercised paused health and access paths; paid inference and full audio handling were only measured locally. To measure a short window for the AI Worker alone, use `python backend/ai/metrics.py --beta-minutes 15`.
 
-The [owner-only hosted verification](../../docs/hosted-owner-probe.md) records the deployed endpoint results separately from the earlier [personal-key fictional verification](../../docs/assistant-api.md). Live participant traffic, an actual microphone recording and [encrypted sync between two physical PCs](../README.md#trial-on-two-windows-pcs) remain outstanding.
+The [owner-only hosted verification](../../docs/hosted-owner-probe.md) records successful live `gpt-6-luna` and `gpt-transcribe` checks separately from the earlier [personal-key fictional verification](../../docs/assistant-api.md). **`gpt-6.1-sol` complex planning has not been live-tested.** See the [credit-beta record](../../docs/credit-beta.md) for current deployment and offline checks. Live participant traffic, an actual microphone recording and [encrypted sync between two physical PCs](../README.md#trial-on-two-windows-pcs) remain outstanding.

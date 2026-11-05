@@ -1,6 +1,6 @@
 # Calendar 1.5.0 owner-only hosted verification, 4 November 2026
 
-**Both live checks passed on the corrected Worker.** The restricted service credential completed a two-request exam lookup and transcribed one synthetic clip. The Worker is paused and participant access is closed.
+**Both live checks passed on the corrected Worker.** The restricted service credential completed a two-request exam lookup and transcribed one synthetic clip. Cleanup left the Worker paused with participant access closed. This is the historical probe record; the subsequent [five-person credit-funded beta](credit-beta.md) has its own activation procedure, grant deadline and verification record.
 
 ## Corrected deployment at 11:52 UTC
 
@@ -45,6 +45,6 @@ The corrected Worker uses manual redirect handling and rejects 3xx responses wit
 
 All **72 desktop and owner tests**, including the backend-dependent UI test, and **19 Worker tests** passed. The local 100-person simulation completed 315 Worker requests and 215 mocked upstream requests; the hosted desktop integration check also passed.
 
-The provider project has input/output sharing disabled. Its saved US$10 monthly cap read back `inactive` twice; the alert endpoint returned HTTP 400 `paid_plan_required`. The observed grant expires **26 November 2026**. The service credential expires **4 December 2026** and cannot extend the grant. No credits were purchased, paid billing or auto-recharge enabled, admin key recreated, sharing changed or credential permissions expanded. The normal participant activation requirements still apply. [Owner guide](../backend/ai/README.md) · [OpenAI subscription credit terms](https://developers.openai.com/api/docs/guides/chatgpt-api-credits)
+The provider project has input/output sharing disabled. Its saved US$10 monthly cap read back `inactive` twice; the alert endpoint returned HTTP 400 `paid_plan_required`. The observed grant expires **26 November 2026**. The service credential expires **4 December 2026** and cannot extend the grant. No credits were purchased, paid billing or auto-recharge enabled, admin key recreated, sharing changed or credential permissions expanded. The normal participant activation requirements still apply; the later limited credit mode does not claim those provider safeguards passed. [Owner guide](../backend/ai/README.md) · [OpenAI subscription credit terms](https://developers.openai.com/api/docs/guides/chatgpt-api-credits)
 
-Real microphone input and encrypted sync between two physical PCs remain outstanding.
+This successful live probe covered **`gpt-6-luna` and `gpt-transcribe`**, not **`gpt-6.1-sol` complex planning**. Real microphone input and encrypted sync between two physical PCs remain outstanding.

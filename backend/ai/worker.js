@@ -200,6 +200,9 @@ function measured(usage, p, audio) {
 }
 
 async function enroll(db, request, id, verifier, clock) {
+  const policy = await db.prepare("SELECT funding,credit_expires FROM policy WHERE id=1").first();
+  requireThat(policy, "service_unavailable");
+  requireThat(!grantExpired(policy, Math.floor(clock() / 1000)), "service_paused");
   const body = await jsonInput(request, 256);
   requireThat(exact(body, ["invite"]) && typeof body.invite === "string" && TOKEN.test(body.invite));
   const ticket = await hash("invite:" + body.invite);
@@ -221,7 +224,7 @@ async function enroll(db, request, id, verifier, clock) {
   }
   const row = await db
     .prepare(
-      "INSERT INTO devices(id,verifier,member,invite_hash) SELECT ?,?,member,hash FROM invites WHERE hash=? AND expires>? AND EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='enroll') RETURNING member",
+      "INSERT INTO devices(id,verifier,member,invite_hash) SELECT ?,?,member,hash FROM invites WHERE hash=? AND expires>? AND (SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name IN ('enroll','credit_enrollment'))=2 RETURNING member",
     )
     .bind(id, verifier, ticket, Math.floor(clock() / 1000))
     .first();
@@ -334,13 +337,16 @@ async function speech(request, now, prices) {
     endpoint: "audio/transcriptions",
   };
 }
+function grantExpired(policy, now) {
+  return policy.funding === "credit" && !(policy.credit_expires > now);
+}
 async function handle(request, env, fetchUpstream, clock, prices) {
   const path = new URL(request.url).pathname,
     db = env.AI_DB;
   if (path === "/health" && request.method === "GET") {
-    const row = await db.prepare("SELECT paused FROM policy WHERE id=1").first();
+    const row = await db.prepare("SELECT paused,funding,credit_expires FROM policy WHERE id=1").first();
     requireThat(row, "service_unavailable");
-    return reply({ status: "ok", paused: !!row.paused });
+    return reply({ status: "ok", paused: !!row.paused || grantExpired(row, Math.floor(clock() / 1000)) });
   }
   if (!["/v1/enroll", "/v1/chat", "/v1/transcribe", "/v1/status"].includes(path))
     return reply({ error: "not_found" }, 404);
@@ -355,13 +361,14 @@ async function handle(request, env, fetchUpstream, clock, prices) {
   if (path === "/v1/enroll") return enroll(db, request, device, verifier, clock);
   const who = await db
     .prepare(
-      "SELECT m.id,(SELECT paused FROM policy WHERE id=1) AS paused FROM devices d JOIN members m ON d.member=m.id WHERE d.id=? AND d.verifier=? AND d.revoked=0 AND m.revoked=0",
+      "SELECT m.id,p.paused,p.funding,p.credit_expires FROM devices d JOIN members m ON d.member=m.id LEFT JOIN policy p ON p.id=1 WHERE d.id=? AND d.verifier=? AND d.revoked=0 AND m.revoked=0",
     )
     .bind(device, verifier)
     .first();
   requireThat(who, "revoked");
-  if (path === "/v1/status") return reply({ member: who.id, device, paused: who.paused !== 0 });
-  requireThat(who.paused === 0, "service_paused");
+  const paused = who.paused !== 0 || grantExpired(who, now);
+  if (path === "/v1/status") return reply({ member: who.id, device, paused });
+  requireThat(!paused, "service_paused");
   requireThat(env.OPENAI_SERVICE_KEY, "service_unavailable");
   const call =
     path === "/v1/chat"
@@ -370,10 +377,11 @@ async function handle(request, env, fetchUpstream, clock, prices) {
   // A slow upload may cross midnight or outlive its request ID.
   const admitted = Math.floor(clock() / 1000);
   validTurn(call.turn, admitted);
+  requireThat(!grantExpired(who, admitted), "service_paused");
   const day = new Date(admitted * 1000).toISOString().slice(0, 10);
   const reserved = await db
     .prepare(
-      "INSERT INTO calls(member,turn,step,device,day,model,seconds,is_plan,charge,prior) SELECT ?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name IN ('reserve','reconcile'))=2 RETURNING step",
+      "INSERT INTO calls(member,turn,step,device,day,model,seconds,is_plan,charge,prior) SELECT ?,?,?,?,?,?,?,?,?,? WHERE (SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name IN ('reserve','reconcile','credit_admission'))=3 RETURNING step",
     )
     .bind(
       who.id,
@@ -389,6 +397,7 @@ async function handle(request, env, fetchUpstream, clock, prices) {
     )
     .first();
   requireThat(reserved, "service_unavailable");
+  requireThat(!grantExpired(who, Math.floor(clock() / 1000)), "service_paused");
   // From here onward any transport, cancellation or storage failure leaves the
   // reservation intact. Never retry an upstream POST.
   const headers = { Authorization: "Bearer " + env.OPENAI_SERVICE_KEY };
@@ -466,10 +475,23 @@ export async function prune(db, now = Date.now()) {
   const ago = (days) => new Date(now - days * 86400000).toISOString().slice(0, 10);
   await db.batch([
     db.prepare("DELETE FROM invites WHERE expires<=?").bind(Math.floor(now / 1000)),
-    db.prepare("DELETE FROM calls WHERE day<?").bind(ago(7)),
-    db.prepare("DELETE FROM daily WHERE day<?").bind(ago(35)),
-    db.prepare("DELETE FROM totals WHERE length(bucket)=10 AND bucket<?").bind(ago(35)),
-    db.prepare("DELETE FROM totals WHERE length(bucket)=7 AND bucket<?").bind(ago(400).slice(0, 7)),
+    // Keep the credit-funded trial's entire accounting history, including uncertain holds.
+    db
+      .prepare("DELETE FROM calls WHERE day<? AND (SELECT funding FROM policy WHERE id=1)='normal'")
+      .bind(ago(7)),
+    db
+      .prepare("DELETE FROM daily WHERE day<? AND (SELECT funding FROM policy WHERE id=1)='normal'")
+      .bind(ago(35)),
+    db
+      .prepare(
+        "DELETE FROM totals WHERE length(bucket)=10 AND bucket<? AND (SELECT funding FROM policy WHERE id=1)='normal'",
+      )
+      .bind(ago(35)),
+    db
+      .prepare(
+        "DELETE FROM totals WHERE length(bucket)=7 AND bucket<? AND (SELECT funding FROM policy WHERE id=1)='normal'",
+      )
+      .bind(ago(400).slice(0, 7)),
   ]);
 }
 // Dependency injection is available only to local tests, never a wire parameter.

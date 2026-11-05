@@ -79,8 +79,18 @@ async function run() {
   assert.equal(addr.hostname, "127.0.0.1");
   const db = await mf.getD1Database("AI_DB");
   await migrate(db);
-  await db.prepare("UPDATE policy SET paused=0").run();
-  const people = Array.from({ length: 100 }, () => ({
+  const credit = process.argv.includes("--credit");
+  if (credit) {
+    await db
+      .prepare(
+        "UPDATE policy SET paused=0,funding='credit',credit_expires=?,seats=5,day_cap=250000000,month_cap=1000000000,lifetime_cap=1000000000",
+      )
+      .bind(Math.floor(Date.now() / 1000) + 86400)
+      .run();
+  } else {
+    await db.prepare("UPDATE policy SET paused=0").run();
+  }
+  const people = Array.from({ length: credit ? 5 : 100 }, () => ({
     id: id(),
     token: token(),
     invite: token(),
@@ -128,13 +138,17 @@ async function run() {
   );
   const elapsed = performance.now() - start,
     endCPU = cpuMillis();
-  assert.equal(await db.prepare("SELECT count(*) n FROM members").first("n"), 100);
-  assert.equal(measures.upstream, 215);
+  assert.equal(await db.prepare("SELECT count(*) n FROM members").first("n"), people.length);
+  assert.equal(
+    measures.upstream,
+    people.length * 2 + Math.min(people.length, 10) + Math.min(people.length, 5),
+  );
   const cpu = startCPU === null ? null : endCPU - startCPU;
   const total = await db.prepare("SELECT amount FROM totals WHERE bucket='lifetime'").first("amount");
   console.log(
     JSON.stringify({
-      people: 100,
+      people: people.length,
+      funding: credit ? "credit" : "normal",
       max_concurrency: 20,
       ...measures,
       statuses,

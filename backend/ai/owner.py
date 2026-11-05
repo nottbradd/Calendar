@@ -8,13 +8,47 @@ import re
 import secrets
 import subprocess
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, DecimalException
 from pathlib import Path
 from uuid import uuid4
 
 BACKEND = Path(__file__).resolve().parents[1]
 FIELDS = {"seats", "turns", "planning", "rounds", "seconds", "day_cap", "month_cap", "lifetime_cap"}
+
+
+def grant_expiry(text):
+    try:
+        day = date.fromisoformat(text)
+        if day.isoformat() != text:
+            raise ValueError
+    except ValueError:
+        raise argparse.ArgumentTypeError("Use the checked grant expiry date as YYYY-MM-DD.") from None
+    return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp())
+
+
+def activate_credit_beta(run, expires):
+    # One statement. A lost reply can leave only the old paused policy or this bounded policy.
+    rows = run(f"""UPDATE policy SET funding='credit',credit_expires={int(expires)},
+        seats=min(seats,5),day_cap=min(day_cap,250000000),
+        month_cap=min(month_cap,1000000000),lifetime_cap=min(lifetime_cap,1000000000),paused=0
+      WHERE id=1 AND paused=1 AND {int(expires)}>unixepoch()
+        AND NOT EXISTS(SELECT 1 FROM owner_probe)
+        AND (SELECT count(*) FROM members WHERE revoked=0)<=min(seats,5)
+        AND EXISTS(SELECT 1 FROM totals WHERE bucket='lifetime')
+        AND NOT EXISTS(SELECT 1 FROM totals WHERE
+          (bucket='lifetime' AND amount>=min(lifetime_cap,1000000000)) OR
+          (bucket=strftime('%Y-%m','now') AND amount>=min(month_cap,1000000000)) OR
+          (bucket=date('now') AND amount>=min(day_cap,250000000)))
+        AND (SELECT count(*) FROM sqlite_master WHERE type='trigger'
+          AND name IN ('enroll','reserve','reconcile','credit_configuration','credit_admission','credit_enrollment'))=6
+      RETURNING *""")
+    if not rows:
+        raise SystemExit(
+            "Credit beta was not activated. Check pause state, grant expiry, active identities, "
+            "remaining budget, probe locks and migrations. Accounting is retained."
+        )
+    return rows
 
 
 def identifier(text):
@@ -77,6 +111,23 @@ def main():
     commands.add_parser("pause")
     commands.add_parser("usage")
     commands.add_parser("members")
+    credit = commands.add_parser(
+        "credit-beta",
+        help="Enable the five-person credit-funded beta while provider safeguards are unavailable.",
+    )
+    credit.add_argument(
+        "--grant-expires",
+        type=grant_expiry,
+        required=True,
+        metavar="YYYY-MM-DD",
+        help="Reject new sponsored requests at 00:00 UTC on this verified grant expiry date.",
+    )
+    credit.add_argument(
+        "--grant-reviewed",
+        action="store_true",
+        required=True,
+        help="Confirm the grant window was checked. Provider cap is inactive and alerts are unavailable.",
+    )
     probe = commands.add_parser(
         "owner-probe", help="Owner only: one fictional trial; provider cap/alerts unavailable."
     )
@@ -98,7 +149,12 @@ def main():
     def run(sql):
         return execute(args.target, sql, args.persist_to.resolve() if args.persist_to else None)
 
-    if args.command in ("owner-probe", "owner-probe-close"):
+    if args.command == "credit-beta":
+        rows = activate_credit_beta(run, args.grant_expires)
+        print("Credit-funded beta active. Provider cap inactive; provider alerts unavailable.")
+        print("Grant cutoff:", datetime.fromtimestamp(args.grant_expires, UTC).isoformat())
+        print(json.dumps(rows, indent=2))
+    elif args.command in ("owner-probe", "owner-probe-close"):
         from owner_probe import Stopped, close_probe, run_probe
 
         try:
@@ -147,7 +203,8 @@ def main():
         print(
             json.dumps(
                 {
-                    "policy": run("SELECT * FROM policy"),
+                    "policy": run("""SELECT *,datetime(credit_expires,'unixepoch') AS credit_expires_utc,
+                        paused OR (funding='credit' AND credit_expires<=unixepoch()) AS effective_paused FROM policy"""),
                     "totals_nano_usd": run("SELECT * FROM totals ORDER BY bucket"),
                     "today": run(
                         "SELECT count(*) AS active_people,coalesce(sum(turns),0) AS turns,coalesce(sum(planning),0) AS planning,coalesce(sum(seconds),0) AS seconds FROM daily WHERE day=date('now')"
@@ -169,9 +226,11 @@ def main():
         if not run(f"UPDATE devices SET revoked=1 WHERE id='{args.id}' RETURNING id"):
             raise SystemExit("No such device.")
     elif args.command in ("pause", "resume"):
-        guard = " AND NOT EXISTS(SELECT 1 FROM owner_probe)" if args.command == "resume" else ""
-        if not run(f"UPDATE policy SET paused={int(args.command == 'pause')} WHERE id=1{guard} RETURNING id"):
-            raise SystemExit("An owner probe is present. Close it before normal activation.")
+        if args.command == "pause":
+            run("UPDATE policy SET paused=1 WHERE id=1")
+        elif not run("""UPDATE policy SET paused=0,funding='normal',credit_expires=NULL WHERE id=1
+                AND (funding='normal' OR paused=1) AND NOT EXISTS(SELECT 1 FROM owner_probe) RETURNING id"""):
+            raise SystemExit("Pause the service and close any owner probe before normal activation.")
     elif args.command == "limit":
         try:
             amount = Decimal(args.value) * (1000000000 if args.field.endswith("_cap") else 1)

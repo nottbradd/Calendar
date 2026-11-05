@@ -76,12 +76,13 @@ after(async () => {
   await proxy?.dispose();
 });
 beforeEach(async () => {
+  await db.prepare("UPDATE policy SET paused=1").run();
   for (const table of ["calls", "daily", "totals", "devices", "invites", "members"])
     await db.prepare("DELETE FROM " + table).run();
   await db.prepare("INSERT INTO totals VALUES ('lifetime',0)").run();
   await db
     .prepare(
-      "UPDATE policy SET paused=0,seats=100,turns=20,planning=1,rounds=4,seconds=120,day_cap=1000000000,month_cap=10000000000,lifetime_cap=80000000000",
+      "UPDATE policy SET paused=0,funding='normal',credit_expires=NULL,seats=100,turns=20,planning=1,rounds=4,seconds=120,day_cap=1000000000,month_cap=10000000000,lifetime_cap=80000000000",
     )
     .run();
   now = Date.UTC(2031, 3, 14, 12);
@@ -289,7 +290,11 @@ test("fail closed on bad pricing/config, request smuggling, ambiguous usage and 
   await db.prepare("DELETE FROM policy").run();
   await reason(call("chat", a, first()), "service_paused");
   assert.equal(hits, 1);
-  await db.prepare("INSERT INTO policy VALUES (1,0,100,20,1,4,120,1000000000,10000000000,80000000000)").run();
+  await db
+    .prepare(
+      "INSERT INTO policy VALUES (1,0,100,20,1,4,120,1000000000,10000000000,80000000000,'normal',NULL)",
+    )
+    .run();
 });
 
 test("disconnect during upstream preserves hold; a replay cannot call upstream twice", async () => {
@@ -456,4 +461,179 @@ test("a transcription denial exposes only safe owner diagnostics and keeps its f
     await db.prepare("SELECT amount FROM totals WHERE bucket='lifetime'").first("amount"),
     60 * PRICES["gpt-transcribe"].second,
   );
+});
+
+async function creditBeta(expires = Math.floor(now / 1000) + 86400) {
+  await db.prepare("UPDATE policy SET paused=1").run();
+  await db
+    .prepare(
+      "UPDATE policy SET paused=0,funding='credit',credit_expires=?,seats=5,day_cap=250000000,month_cap=1000000000,lifetime_cap=1000000000",
+    )
+    .bind(expires)
+    .run();
+}
+
+test("credit beta caps five identities and shares original allowances across devices and Worker restarts", async () => {
+  await creditBeta();
+  const people = await Promise.all(
+    Array.from({ length: 6 }, async () => {
+      const d = device(),
+        member = id();
+      const result = await call("enroll", d, { invite: await ticket(member) });
+      return { ...d, member, status: result.status };
+    }),
+  );
+  assert.deepEqual(people.map((p) => p.status).sort(), [200, 200, 200, 200, 200, 409]);
+  const a = people.find((p) => p.status === 200),
+    b = await enrolled(a.member);
+  upstream = async (url, opts) => {
+    if (url.endsWith("/audio/transcriptions")) {
+      const seconds = (opts.body.get("file").size - 44) / 32000;
+      return Response.json({ text: "Fictional transcript", usage: { type: "duration", seconds } });
+    }
+    assert.ok(["gpt-6-luna", "gpt-6.1-sol"].includes(JSON.parse(opts.body).model));
+    return answer();
+  };
+  assert.equal((await call("chat", a, first("Keep my fixed fictional appointment"))).status, 200);
+  await reason(call("chat", b, first("Keep my other appointment fixed")), "planning_allowance");
+  // A new Worker instance sees the same durable person and counters.
+  worker = createWorker({
+    clock: () => now,
+    upstream: async (...args) => {
+      hits++;
+      return upstream(...args);
+    },
+  });
+  for (let i = 0; i < 19; i++) assert.equal((await call("chat", i % 2 ? a : b, first())).status, 200);
+  await reason(call("chat", b, first()), "daily_allowance");
+  for (const [person, seconds] of [
+    [a, 45],
+    [b, 45],
+    [a, 30],
+  ]) {
+    assert.equal(
+      (await call("transcribe", person, new Uint8Array(seconds * 32000), { "X-Calendar-Request": turn() }))
+        .status,
+      200,
+    );
+  }
+  await reason(
+    call("transcribe", b, new Uint8Array(32000), { "X-Calendar-Request": turn() }),
+    "audio_allowance",
+  );
+  const quota = await db
+    .prepare("SELECT turns,planning,seconds FROM daily WHERE member=?")
+    .bind(a.member)
+    .first();
+  assert.deepEqual(quota, { turns: 20, planning: 1, seconds: 120 });
+  await db.prepare("UPDATE devices SET revoked=1 WHERE id=?").bind(a.id).run();
+  await reason(call("status", a, {}), "revoked");
+  assert.equal((await call("status", b, {})).status, 200);
+  await db.prepare("UPDATE members SET revoked=1 WHERE id=?").bind(a.member).run();
+  await reason(call("status", b, {}), "revoked");
+  await enrolled();
+  assert.equal(await db.prepare("SELECT count(*) n FROM members WHERE revoked=0").first("n"), 5);
+  assert.equal(hits, 23);
+});
+
+test("credit expiry rejects chat, audio, enrollment and late uploads at the exact boundary", async () => {
+  const expires = Math.floor(now / 1000) + 60;
+  await creditBeta(expires);
+  const a = await enrolled();
+  assert.equal((await call("chat", a, first())).status, 200);
+  const baseline = await db.prepare("SELECT count(*) n FROM calls").first("n");
+  now = expires * 1000;
+  assert.deepEqual(
+    await (await worker.fetch(new Request("https://calendar.test/health"), { AI_DB: db })).json(),
+    { status: "ok", paused: true },
+  );
+  assert.equal((await (await call("status", a, {})).json()).paused, true);
+  await reason(call("chat", a, first()), "service_paused");
+  await reason(
+    call("transcribe", a, new Uint8Array(32000), { "X-Calendar-Request": turn() }),
+    "service_paused",
+  );
+  await reason(call("enroll", device(), { invite: await ticket() }), "service_paused");
+  assert.equal(hits, 1);
+  assert.equal(await db.prepare("SELECT count(*) n FROM calls").first("n"), baseline);
+  now -= 1000;
+  let checks = 0;
+  const slowUpload = createWorker({
+    clock: () => (++checks === 1 ? now : now + 1000),
+    upstream: () => {
+      throw Error("must not submit");
+    },
+  });
+  await reason(call("chat", a, first(), {}, slowUpload), "service_paused");
+  assert.equal(await db.prepare("SELECT count(*) n FROM calls").first("n"), baseline);
+  checks = 0;
+  const lateReservation = createWorker({
+    clock: () => (++checks < 3 ? now : now + 1000),
+    upstream: () => {
+      throw Error("must not submit");
+    },
+  });
+  await reason(call("chat", a, first(), {}, lateReservation), "service_paused");
+  assert.equal(await db.prepare("SELECT count(*) n FROM calls WHERE state='held'").first("n"), 1);
+});
+
+test("credit dollar ceilings include old holds, serialize racing devices and retain the entire ledger", async () => {
+  await creditBeta(Math.floor(now / 1000) + 1000 * 86400);
+  const a = await enrolled(),
+    b = await enrolled(a.member);
+  upstream = () => {
+    throw Error("fictional transport failure");
+  };
+  await reason(call("chat", a, first()), "upstream_unavailable");
+  const held = await db.prepare("SELECT charge FROM calls").first("charge");
+  const day = new Date(now).toISOString().slice(0, 10);
+  for (const [bucket, cap] of [
+    [day, 250000000],
+    [day.slice(0, 7), 1000000000],
+    ["lifetime", 1000000000],
+  ]) {
+    await db.prepare("UPDATE totals SET amount=6693300").run();
+    await db
+      .prepare("UPDATE totals SET amount=? WHERE bucket=?")
+      .bind(cap - held, bucket)
+      .run();
+    const priorHits = hits;
+    const racing = await Promise.all([call("chat", a, first()), call("chat", b, first())]);
+    const reasons = await Promise.all(racing.map(async (res) => (await res.json()).error));
+    assert.deepEqual(reasons.sort(), ["shared_budget", "upstream_unavailable"]);
+    assert.equal(hits, priorHits + 1);
+    assert.equal(
+      await db.prepare("SELECT amount FROM totals WHERE bucket=?").bind(bucket).first("amount"),
+      cap,
+    );
+  }
+  const tables = ["calls", "daily", "totals"],
+    before = [];
+  for (const table of tables)
+    before.push((await db.prepare("SELECT * FROM " + table + " ORDER BY rowid").all()).results);
+  await prune(db, now + 800 * 86400000);
+  for (const [i, table] of tables.entries())
+    assert.deepEqual(
+      (await db.prepare("SELECT * FROM " + table + " ORDER BY rowid").all()).results,
+      before[i],
+    );
+});
+
+test("missing credit enforcement prevents admissions without consuming an upstream call", async () => {
+  await creditBeta();
+  const a = await enrolled();
+  for (const name of ["credit_admission", "credit_enrollment"]) {
+    const original = await db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?")
+      .bind(name)
+      .first("sql");
+    await db.prepare("DROP TRIGGER " + name).run();
+    try {
+      if (name === "credit_admission") await reason(call("chat", a, first()), "service_unavailable");
+      else await reason(call("enroll", device(), { invite: await ticket() }), "invalid_invite");
+    } finally {
+      await db.prepare(original).run();
+    }
+  }
+  assert.equal(hits, 0);
 });
