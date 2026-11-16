@@ -1,5 +1,7 @@
 # Calendar for Windows · Third-party software
 
+Calendar itself is licensed under GNU GPL v3 only (`GPL-3.0-only`), copyright (c) 2026 nottbradd. Its licence and project notice are included in the installed `licenses` directory as `Calendar-LICENSE.txt` and `Calendar-COPYRIGHT.txt`.
+
 Calendar uses Python, Qt, Qt for Python (PySide6 and Shiboken), SQLite, and the bundled Source Sans 3 font. The Windows build also includes the PyInstaller bootloader, Microsoft Visual C++ runtime files and runtime dependencies including OpenSSL and libffi. Setup is built with Inno Setup. Each component retains its upstream terms. The installed `licenses` directory contains the accompanying notices.
 
 ## Qt and Qt for Python 6.11.2

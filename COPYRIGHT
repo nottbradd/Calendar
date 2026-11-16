@@ -1,0 +1,22 @@
+Calendar
+Copyright (c) 2026 nottbradd
+
+SPDX-License-Identifier: GPL-3.0-only
+
+Calendar is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation, version 3 only.
+
+Calendar is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+more details.
+
+You should have received a copy of the GNU General Public License along
+with Calendar, in LICENSE. If not, see <https://www.gnu.org/licenses/>.
+
+This notice applies to Calendar's original desktop, backend, website,
+documentation and build files. Third-party components retain their own
+copyright notices and licences; see installer/THIRD-PARTY.md and the
+bundled notices. Previously distributed MIT-licensed versions retain
+their original licence.

@@ -123,4 +123,8 @@ The public site is served by GitHub Pages from **docs** on **main**. Its screens
 
 ## License
 
-Calendar is released under the [MIT License](LICENSE). Bundled libraries and the Source Sans 3 font have their own licenses, listed in the [third-party notices](installer/THIRD-PARTY.md).
+Calendar is released under the [GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`). Copyright (c) 2026 nottbradd. See the [project copyright and licence notice](COPYRIGHT).
+
+This covers Calendar's original desktop, backend, website, documentation and build files. Bundled libraries and the Source Sans 3 font retain their own licences, listed in the [third-party notices](installer/THIRD-PARTY.md). Versions already distributed under MIT retain their original licence.
+
+When distributing a GPL-covered executable, provide its corresponding source under GPL v3, including the build scripts and required third-party source and notices. For releases from this repository, publish the source for the exact tagged build alongside the installer and portable downloads. See [GPL v3 section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6) for the distribution terms.

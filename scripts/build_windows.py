@@ -52,6 +52,7 @@ def windows_version(target: Path) -> None:
     strings = {
         "ProductName": APP_NAME, "FileDescription": APP_NAME, "InternalName": APP_NAME,
         "OriginalFilename": f"{APP_NAME}.exe", "ProductVersion": __version__, "FileVersion": __version__,
+        "LegalCopyright": "Copyright (c) 2026 nottbradd",
     }
     table = vi.StringTable("040904B0", [vi.StringStruct(key, value) for key, value in strings.items()])
     info = vi.VSVersionInfo(vi.FixedFileInfo(filevers=version, prodvers=version), [
@@ -86,6 +87,7 @@ if __name__ == "__main__":
         "--noconfirm", "--onedir" if options.installer_runtime else "--onefile", "--windowed", "--noupx", "--name", APP_NAME,
         "--icon", str(ico), "--version-file", str(version_file), "--add-data", f"{ASSETS}:school_calendar/assets",
         "--add-data", f"{ROOT / 'LICENSE'}:.",
+        "--add-data", f"{ROOT / 'COPYRIGHT'}:.",
         "--copy-metadata", "PyNaCl", "--copy-metadata", "cffi", "--copy-metadata", "pycparser",
         # PyNaCl's compiled extension imports the CFFI backend from C at runtime.
         "--hidden-import", "_cffi_backend",

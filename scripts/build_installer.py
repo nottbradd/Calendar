@@ -31,6 +31,8 @@ def main():
     pyinstaller = distribution("pyinstaller")
     bootloader_license = next(p for p in pyinstaller.files if p.name == "COPYING.txt" and ".dist-info" in str(p))
     for src, name in (
+        (ROOT / "LICENSE", "Calendar-LICENSE.txt"),
+        (ROOT / "COPYRIGHT", "Calendar-COPYRIGHT.txt"),
         (ROOT / "installer/THIRD-PARTY.md", "README.md"),
         (ROOT / "school_calendar/assets/fonts/LICENSE.md", "Source-Sans-3.md"),
         (Path(sys.base_prefix) / "LICENSE.txt", "Python.txt"),
