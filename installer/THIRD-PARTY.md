@@ -2,7 +2,7 @@
 
 Calendar itself is licensed under GNU GPL v3 only (`GPL-3.0-only`), copyright (c) 2026 nottbradd. Its licence and project notice are included in the installed `licenses` directory as `Calendar-LICENSE.txt` and `Calendar-COPYRIGHT.txt`.
 
-Calendar uses Python, Qt, Qt for Python (PySide6 and Shiboken), SQLite, and the bundled Source Sans 3 font. The Windows build also includes the PyInstaller bootloader, Microsoft Visual C++ runtime files and runtime dependencies including OpenSSL and libffi. Setup is built with Inno Setup. Each component retains its upstream terms. The installed `licenses` directory contains the accompanying notices.
+Calendar uses Python, Qt, Qt for Python (PySide6 and Shiboken), SQLite, and the bundled Geist, Manrope and Source Sans 3 fonts. The Windows build also includes the PyInstaller bootloader, Microsoft Visual C++ runtime files and runtime dependencies including OpenSSL and libffi. Setup is built with Inno Setup. Each component retains its upstream terms. The installed `licenses` directory contains the accompanying notices.
 
 ## Qt and Qt for Python 6.11.2
 
@@ -18,6 +18,10 @@ The unmodified upstream wheels supply the shared Qt libraries and Python binding
 To use a modified library, build a compatible x64 version using the upstream source instructions. Close Calendar and replace the corresponding shared files in `_internal/PySide6` or `_internal/shiboken6` in its installation directory. You can also install compatible locally built wheels in the development environment and run the installer build described in the [project README](https://github.com/nottbradd/Calendar#verify-and-build).
 
 ## Other components
+
+The workspace uses the Synapse paper texture, copyright © 2026 nottbradd and contributors, under GPL v3 only. [Original artwork](https://github.com/nottbradd/Synapse/blob/5a56b240386a3ad942a40e315afd4ad3d383890a/src/assets/ambient-frost.png)
+
+Geist and Manrope are bundled under the SIL Open Font License 1.1. Their copyright notices and licence texts accompany the font files. [Geist source](https://github.com/google/fonts/tree/869789e84da92782c144d83d69b64cec54905b5f/ofl/geist) · [Manrope source](https://github.com/google/fonts/tree/869789e84da92782c144d83d69b64cec54905b5f/ofl/manrope)
 
 The sync prototype uses PyNaCl and libsodium for authenticated encryption and sealed key envelopes. Windows builds include their license texts, together with the cffi and pycparser notices, in the bundled Python package metadata. [PyNaCl](https://github.com/pyca/pynacl) · [libsodium](https://github.com/jedisct1/libsodium)
 

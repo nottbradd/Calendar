@@ -319,7 +319,7 @@ class AssistantPanel(QFrame):
 
     def position(self):
         area = self.window.centralWidget()
-        top = self.window.assistant_button.geometry().bottom() + 9
+        top = self.window.toolbar.geometry().bottom() + 9
         width = max(335, min(435, int(area.width() * 0.40)))
         self.setGeometry(area.width() - width - 12, top, width, max(250, area.height() - top - 12))
         self.raise_()

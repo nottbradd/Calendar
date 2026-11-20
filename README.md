@@ -4,7 +4,7 @@ A local Windows planner for SACs, exams, assignments, deadlines, and custom even
 
 [Official Calendar page](https://nottbradd.github.io/Calendar/) · [Download the Windows installer](https://github.com/nottbradd/Calendar/releases/download/v1.2.1/Calendar-1.2.1-Setup.exe) · [Release notes and checksums](https://github.com/nottbradd/Calendar/releases/tag/v1.2.1)
 
-![Calendar on Windows, showing a month and upcoming assessments with sample entries](docs/calendar.png)
+![Current source build on Windows showing a month and upcoming assessments with fictional entries](docs/appearance/calendar.png)
 
 ## Run on Windows
 
@@ -26,24 +26,25 @@ The last command launches the app on subsequent runs.
 
 - Choose **Add entry** or click an empty date. A title and date are required. You can also add a subject, type, and notes. The **Custom** type accepts a name of your choice.
 - Leave both times blank for an all-day entry. Set only **Start** for a single point in time, or set **Start** and **End** for a range. Use local 24-hour times. The end must be later on the same date.
-- The filled badge in Month marks today. An outlined cell marks the selected day. Use the arrows to move one month or week, or **Today** to return to the current date. Switching views keeps the selected date.
+- In Month, the selected date has a filled oxblood number. In Week, it has an underlined heading. A small oxblood dot marks today in both views. Use the arrows to move one month or week, or **Today** to return to the current date. Switching views keeps the selected date.
 - The **Upcoming** agenda includes unfinished past work first, then today and future dates. Within each day, all-day entries come first, followed by timed entries in clock order. Ties sort by title and then stable entry ID.
 - Click an entry to read its details, edit it, or mark it complete. Use the **Completed** tab to find and reopen finished work. Deletion asks for confirmation and initially focuses **Keep entry**.
 - Choose **+N more** on a busy date or **View day** below the calendar to see every entry. Subjects keep their colour across the grid, agenda, day list, and details.
+- At the narrowest window size, **Show agenda** brings back Upcoming and Completed alongside the month.
 
 ### Week
 
 The week starts on Monday. All-day entries stay above the schedule as you scroll. The timeline opens at 09:00, and you can scroll from midnight to the end of the day. Click a day heading or the all-day strip to add an untimed entry. Click a free time slot to start an entry at that quarter hour.
 
-A coloured block spans the exact time range. A hollow circle marks a start with no end time. Overlapping entries sit side by side. Even a one-minute entry has a clickable title and time below its thin duration mark. On smaller windows **Show agenda** opens Upcoming and Completed alongside the week. Crowded days allow horizontal scrolling.
+A block with a subject-colour strip spans the exact time range. A hollow circle marks a start with no end time. Overlapping entries sit side by side. Even a one-minute entry has a clickable title and time below its thin duration mark. On smaller windows **Show agenda** opens Upcoming and Completed alongside the week. Crowded days allow horizontal scrolling.
 
-![Calendar week with a 10:15–11:45 lab, overlapping workshops and a start-only deadline](docs/week.png)
+![Calendar week with a 10:15–11:45 lab, an overlapping workshop and a start-only deadline](docs/appearance/week.png)
 
 ### Subjects
 
 Open **Settings**, enter a subject name, choose a colour, and select **Add subject**. Saved subjects appear immediately in the **Subject** dropdown when you create or edit an entry. You can also type a subject directly into an entry to give it the next palette colour automatically.
 
-![Settings with saved subjects and an eight-colour palette](docs/settings.png)
+![Settings with saved subjects and an eight-colour palette](docs/appearance/settings.png)
 
 | Keyboard action | Shortcut |
 | --- | --- |
@@ -85,9 +86,11 @@ The assistant can find assessments, calculate days remaining, check free periods
 
 ## Appearance
 
-Frosted glass is the default for the calendar, agenda, Settings and entry dialogs. On Windows 11 build 22621 or later, Desktop Acrylic lets colours from other windows or the wallpaper show through the active window with system blur. The panels and fields tint this material while text stays sharp. Windows can use a solid material when transparency is off or Battery Saver is active. Systems without the backdrop API use a painted gradient and translucent internal layers. [Windows backdrop support](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) · [Acrylic system behaviour](https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic)
+The toolbar and agenda soften the warm paper texture beneath them. Opening an entry places its details over a blurred sample of the calendar. The grid uses an opaque reading surface and small subject-colour marks. Windows 11 can also supply Desktop Acrylic for native dialogs. Windows transparency-off and High Contrast preferences select solid warm-white panes. [Windows backdrop support](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)
 
-The interface uses the bundled upright variable font from the [Source Sans 3 release](https://github.com/adobe-fonts/source-sans/releases/tag/3.052R). The [font licence](school_calendar/assets/fonts/LICENSE.md) is included.
+Calendar bundles Manrope for headings and Geist for controls, dates and times. Tabular numerals align the digits. The fonts and paper texture load locally and work offline. [Asset credits and font licences](installer/THIRD-PARTY.md)
+
+[Open event details](docs/appearance/event-details.png) · [Event editor](docs/appearance/event-editor.png) · [Narrow month](docs/appearance/narrow-month.png)
 
 ## Verify and build
 
@@ -125,6 +128,6 @@ The public site is served by GitHub Pages from **docs** on **main**. Its screens
 
 Calendar is released under the [GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`). Copyright (c) 2026 nottbradd. See the [project copyright and licence notice](COPYRIGHT).
 
-This covers Calendar's original desktop, backend, website, documentation and build files. Bundled libraries and the Source Sans 3 font retain their own licences, listed in the [third-party notices](installer/THIRD-PARTY.md). Versions already distributed under MIT retain their original licence.
+This covers Calendar's original desktop, backend, website, documentation and build files. Bundled libraries and fonts retain their own licences, listed in the [third-party notices](installer/THIRD-PARTY.md). Versions already distributed under MIT retain their original licence.
 
 When distributing a GPL-covered executable, provide its corresponding source under GPL v3, including the build scripts and required third-party source and notices. For releases from this repository, publish the source for the exact tagged build alongside the installer and portable downloads. See [GPL v3 section 6](https://www.gnu.org/licenses/gpl-3.0.html#section6) for the distribution terms.

@@ -7,7 +7,8 @@
 *.ico binary
 *.ttf binary
 *.png binary
-# Preserve the font licence exactly as distributed by Adobe.
+# Preserve the typefaces' upstream licence files byte for byte.
 school_calendar/assets/fonts/LICENSE.md -text -whitespace
+school_calendar/assets/fonts/*-OFL.txt -text -whitespace
 # Bundled upstream notices contain Markdown heading underlines of seven equals signs.
 installer/licenses/*.txt -text -whitespace conflict-marker-size=80

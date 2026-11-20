@@ -35,6 +35,8 @@ def main():
         (ROOT / "COPYRIGHT", "Calendar-COPYRIGHT.txt"),
         (ROOT / "installer/THIRD-PARTY.md", "README.md"),
         (ROOT / "school_calendar/assets/fonts/LICENSE.md", "Source-Sans-3.md"),
+        (ROOT / "school_calendar/assets/fonts/Geist-OFL.txt", "Geist-OFL.txt"),
+        (ROOT / "school_calendar/assets/fonts/Manrope-OFL.txt", "Manrope-OFL.txt"),
         (Path(sys.base_prefix) / "LICENSE.txt", "Python.txt"),
         (compiler.parent / "license.txt", "Inno-Setup.txt"),
         (pyinstaller.locate_file(bootloader_license), "PyInstaller.txt"),

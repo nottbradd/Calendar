@@ -3,13 +3,15 @@ import unittest
 from datetime import date, time, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic
+from unittest.mock import patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
 from school_calendar.agenda import EntryRow
-from school_calendar.appearance import apply_theme
+from school_calendar.appearance import FROST, apply_theme
 from school_calendar.dialogs import DayDetails, EntryDetails, EntryEditor
 from school_calendar.model import Entry, SUBJECT_COLOURS, countdown, parse_day
 from school_calendar.month_view import chip_layout
@@ -84,6 +86,52 @@ class CalendarInterfaceTests(unittest.TestCase):
         point = self.win.grid.visualRect(index).topLeft() + QPoint(10, 9)
         QTest.mouseClick(self.win.grid.viewport(), Qt.MouseButton.LeftButton, pos=point)
         self.settle()
+
+    def test_narrow_month_keeps_today_selection_agenda_and_entry_actions_accessible(self):
+        self.store.save(Entry("Studio critique", self.today))
+        self.win.reload()
+        self.win.resize(760, 516)
+        self.settle()
+        grid = self.win.grid
+        today_index = grid.month_model.index_of(self.today)
+        role = Qt.ItemDataRole.AccessibleTextRole
+        self.assertIn("Today · Selected", today_index.data(role))
+        self.key(grid, Qt.Key.Key_Right)
+        self.assertIn("Today", today_index.data(role))
+        self.assertNotIn("Selected", today_index.data(role))
+        self.assertIn("Selected", grid.currentIndex().data(role))
+        self.assertFalse(self.win.agenda_panel.isVisible())
+        self.click(self.win.agenda_toggle)
+        self.assertTrue(self.win.completed_button.isVisible())
+        details = self.open_row("Studio critique")
+        self.win.resize(900, 620)
+        workspace = self.win.centralWidget()
+        # Backdrop sampling is deferred until Qt has laid out the resized workspace.
+        def anchored():
+            box = QRect(workspace.mapFromGlobal(details.mapToGlobal(QPoint())), details.size())
+            return workspace.rect().contains(box) and workspace.width() - box.right() <= 10
+
+        deadline = monotonic() + 2
+        while not anchored() and monotonic() < deadline:
+            QTest.qWait(15)
+        self.assertTrue(anchored())
+        self.assertTrue(details.edit_button.isVisible())
+        self.key(details, Qt.Key.Key_Escape)
+        self.assertIsNone(self.win.dialog)
+
+    def test_solid_glass_fallback_preserves_details(self):
+        self.close_app()
+        with patch("school_calendar.appearance.transparency_allowed", return_value=False):
+            self.open_app()
+        self.assertFalse(self.win.centralWidget().glass)
+        self.store.save(Entry("Book discussion", self.today, notes="Bring chapter three."))
+        self.win.reload()
+        details = self.open_row("Book discussion")
+        self.assertTrue(details.sample.isNull())
+        pixel = details.grab().toImage().pixelColor(15, 50)
+        self.assertEqual((pixel.name().upper(), pixel.alpha()), (FROST, 255))
+        self.click(details.edit_button)
+        self.assertEqual(self.win.dialog.notes_input.toPlainText(), "Bring chapter three.")
 
     def test_create_edit_complete_reopen_delete_and_restart(self):
         self.click(self.win.add_button)

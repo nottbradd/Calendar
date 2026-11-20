@@ -37,19 +37,19 @@ class EntryRow(QAbstractButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         box = self.rect().adjusted(1, 1, -1, -1)
         if self.hasFocus() or self.underMouse() or self.isDown():
-            painter.setBrush(QColor(216, 231, 233, 170))
+            painter.setBrush(QColor(239, 233, 230, 210))
             painter.setPen(QPen(QColor(ACCENT), 2) if self.hasFocus() else Qt.PenStyle.NoPen)
             painter.drawRoundedRect(box, 6, 6)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(self.colour))
-        painter.drawRoundedRect(QRect(5, 9, 3, 31), 1.5, 1.5)
-        text_left = 16
+        painter.drawEllipse(5, 12, 7, 7)
+        text_left = 19
         title_box = QRect(text_left, 2, self.width() - text_left - 6, 23)
         painter.setPen(QColor(MUTED if self.entry.completed else INK))
-        painter.setFont(font(16, QFont.Weight.DemiBold))
+        painter.setFont(font(15, QFont.Weight.DemiBold))
         title = ("✓ " if self.entry.completed else "") + self.entry.title
         painter.drawText(title_box, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, title_box.width()))
-        painter.setFont(font(14))
+        painter.setFont(font(12))
         painter.setPen(QColor(MUTED))
         time_width = painter.fontMetrics().horizontalAdvance(self.entry.time_label) + 2
         time_box = QRect(self.width() - time_width - 5, 27, time_width, 19)
@@ -60,13 +60,8 @@ class EntryRow(QAbstractButton):
 
 
 def status_badge(text: str, tone: str) -> QLabel:
-    colours = {
-        "overdue": ("#80432F", "rgba(223,179,157,65)"), "today": ("#2F5760", "rgba(153,195,196,65)"),
-        "done": ("#355C51", "rgba(163,198,174,65)"), "later": (MUTED, "transparent"),
-    }
-    fg, bg = colours[tone]
-    badge = label(text)
-    badge.setStyleSheet(f"color:{fg}; background:{bg}; border-radius:5px; padding:1px 5px; font-size:12px; font-weight:600;")
+    badge = label(text, "relative")
+    badge.setProperty("due", tone in ("overdue", "today"))
     return badge
 
 
@@ -108,7 +103,11 @@ class EntryList(QScrollArea):
             day_entries = list(items)
             if groups:
                 if layout.count():
-                    layout.addSpacing(5)
+                    rule = QFrame()
+                    rule.setObjectName("divider")
+                    rule.setFixedHeight(1)
+                    layout.addWidget(rule)
+                    layout.addSpacing(4)
                 heading = QHBoxLayout()
                 heading.setContentsMargins(1, 3, 1, 3)
                 date_text = f"{group_day:%a}, {group_day.day} {group_day:%b}"

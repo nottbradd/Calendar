@@ -3,37 +3,85 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 
-from PySide6.QtCore import QDate, QLocale, QPoint, Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QDate, QEvent, QLocale, QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCharFormat
 from PySide6.QtWidgets import (
-    QCalendarWidget, QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget, QWidgetAction,
+    QCalendarWidget, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMenu, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from .agenda import EntryList, status_badge, tone_for
-from .appearance import animate_property, button, icon, label, paint_frost, subject_icon
+from .appearance import Backdrop, FROST, MUTED, animate_property, blur_backdrop, button, icon, label, paint_frost, paint_glass, subject_icon
 from .model import Entry, KINDS, countdown, full_day, parse_day, parse_time, validate_times
 from .storage import Snapshot, Store, StoreError
 from .windows import enable_system_frost
 
 
 class PlannerDialog(QDialog):
-    def __init__(self, parent, title):
+    def __init__(self, parent, title, *, popover=False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.native_frost = enable_system_frost(self)
+        self.workspace = parent.centralWidget() if isinstance(parent, QMainWindow) else None
+        self.sample = QPixmap()
+        self.sample_target = QRectF()
+        self.refresh_timer = QTimer(self, singleShot=True, timeout=self.refresh_backdrop)
+        if self.workspace:
+            parent.installEventFilter(self)
+            self.workspace.installEventFilter(self)
+        if popover:
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.native_frost = not popover and enable_system_frost(self)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(18, 14, 18, 16)
         self.body.setSpacing(8)
 
     def paintEvent(self, _event):
-        paint_frost(self, self.native_frost)
+        if self.sample.isNull():
+            allow_native = not isinstance(self.workspace, Backdrop) or self.workspace.glass
+            paint_frost(self, self.native_frost and allow_native)
+            return
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(FROST))
+        self.paint_sample(painter)
+        painter.fillRect(self.rect(), QColor(252, 250, 248, 196))
+
+    def paint_sample(self, painter):
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawPixmap(self.sample_target, self.sample, QRectF(self.sample.rect()))
+
+    def refresh_backdrop(self):
+        self.sample = QPixmap()
+        if self.isVisible() and isinstance(self.workspace, Backdrop) and self.workspace.glass:
+            origin = self.workspace.mapFromGlobal(self.mapToGlobal(QPoint()))
+            # Include the neighbourhood so the blur also samples across the pane's rim.
+            region = QRect(origin, self.size()).adjusted(-28, -28, 28, 28).intersected(self.workspace.rect())
+            if not region.isEmpty():
+                self.sample = blur_backdrop(self.workspace.grab(region), 22)
+                self.sample_target = QRectF(region.translated(-origin))
+        self.update()
+
+    def eventFilter(self, watched, event):
+        if self.isVisible() and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):
+            self.refresh_timer.start(16)
+        return super().eventFilter(watched, event)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self.isVisible():
+            self.refresh_timer.start(16)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.isVisible():
+            self.refresh_timer.start(16)
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.refresh_backdrop()
         if not self.native_frost:
             animate_property(self, self, b"windowOpacity", .93, 1.0)
 
@@ -96,6 +144,10 @@ class DateInput(QWidget):
         self.calendar = QCalendarWidget()
         self.calendar.setLocale(QLocale("en_AU"))
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
+        weekend = QTextCharFormat()
+        weekend.setForeground(QColor(MUTED))
+        for day_of_week in (Qt.DayOfWeek.Saturday, Qt.DayOfWeek.Sunday):
+            self.calendar.setWeekdayTextFormat(day_of_week, weekend)
         self.calendar.setMinimumDate(QDate(1, 1, 1))
         self.calendar.setMaximumDate(QDate(9999, 12, 31))
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
@@ -262,9 +314,30 @@ class EntryDetails(PlannerDialog):
     changed = Signal()
 
     def __init__(self, parent, store: Store, entry: Entry, colour: str, today: date):
-        super().__init__(parent, "Entry details")
+        super().__init__(parent, "Entry details", popover=True)
         self.store, self.entry = store, entry
-        self.setMinimumWidth(406)
+        self.setMinimumWidth(382)
+        self.body.setContentsMargins(27, 20, 27, 24)
+        self.body.setSpacing(9)
+        tags = QHBoxLayout()
+        if entry.subject:
+            dot = QLabel()
+            dot.setPixmap(subject_icon(colour, 12).pixmap(12, 12))
+            tags.addWidget(dot)
+            subject = label(entry.subject, "field")
+            subject.setWordWrap(True)
+            tags.addWidget(subject)
+            tags.addWidget(label("·", "caption"))
+        kind = label(entry.type_label, "muted")
+        kind.setWordWrap(True)
+        tags.addWidget(kind)
+        tags.addStretch()
+        close = button("", "icon", "close")
+        close.setAccessibleName("Close entry details")
+        close.setToolTip("Close entry details (Esc)")
+        close.clicked.connect(self.reject)
+        tags.addWidget(close)
+        self.body.addLayout(tags)
         title = label(entry.title, "heading")
         title.setWordWrap(True)
         title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -272,17 +345,6 @@ class EntryDetails(PlannerDialog):
         title.setToolTip(entry.title)
         title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.body.addWidget(title)
-        tags = QHBoxLayout()
-        subject = label(entry.subject or "No subject")
-        subject.setWordWrap(True)
-        subject.setToolTip(entry.subject)
-        subject.setStyleSheet(f"color:#28384e; border-left:3px solid {colour}; background:rgba(247,252,255,75); padding:3px 7px; font-size:12px;")
-        tags.addWidget(subject)
-        kind = label(entry.type_label, "muted")
-        kind.setWordWrap(True)
-        tags.addWidget(kind)
-        tags.addStretch()
-        self.body.addLayout(tags)
         self.body.addSpacing(3)
         for glyph, value in (("calendar", full_day(entry.day)), ("clock", entry.time_description)):
             line = QHBoxLayout()
@@ -305,7 +367,10 @@ class EntryDetails(PlannerDialog):
             self.body.addWidget(notes)
         self.error = self.error_label()
         self.body.addWidget(self.error)
-        self.body.addSpacing(4)
+        divider = QFrame()
+        divider.setObjectName("divider")
+        divider.setFixedHeight(1)
+        self.body.addWidget(divider)
         self.actions = QWidget()
         row = QHBoxLayout(self.actions)
         row.setContentsMargins(0, 0, 0, 0)
@@ -334,7 +399,26 @@ class EntryDetails(PlannerDialog):
         self.complete_button.clicked.connect(lambda: self._change(delete=False))
         self.edit_button.clicked.connect(self._edit)
         self.edit_button.setFocus()
-        self.resize(448, self.sizeHint().height())
+        self.resize(420, self.sizeHint().height())
+
+    def refresh_backdrop(self):
+        if not self.isVisible():
+            return
+        window = self.parentWidget()
+        x = max(0, self.workspace.width() - self.width() - 8)
+        y = max(0, min(window.toolbar.geometry().bottom() + 5, self.workspace.height() - self.height() - 4))
+        self.move(self.workspace.mapToGlobal(QPoint(x, y)))
+        super().refresh_backdrop()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bounds = QRectF(self.rect()).adjusted(8, 5, -8, -10)
+        for inset in range(6, 0, -1):
+            p.setPen(QPen(QColor(49, 39, 38, 3 + (6 - inset) * 2), 1.5))
+            p.drawRoundedRect(bounds.translated(0, 2).adjusted(-inset, -inset, inset, inset), 12 + inset, 12 + inset)
+
+        paint_glass(p, bounds, self.paint_sample if not self.sample.isNull() else None, tint=153)
 
     def _confirming(self, confirm):
         self.actions.setVisible(not confirm)

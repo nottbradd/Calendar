@@ -7,7 +7,7 @@ from PySide6.QtCore import Property, QAbstractTableModel, QModelIndex, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QStyledItemDelegate, QStyle, QTableView
 
-from .appearance import ACCENT, INK, MUTED, animate_property, font
+from .appearance import ACCENT, FROST, INK, MUTED, PAPER, RULE, animate_property, font
 from .model import Entry, NEUTRAL_COLOUR, WEEKDAYS, full_day, month_grid
 from .storage import Snapshot
 
@@ -53,6 +53,10 @@ class MonthModel(QAbstractTableModel):
             return str(day.day)
         if role in (Qt.ItemDataRole.ToolTipRole, Qt.ItemDataRole.AccessibleTextRole):
             lines = [full_day(day)]
+            if day == getattr(self.parent(), "today", None):
+                lines[0] += " · Today"
+            if day == getattr(self.parent(), "selected", None):
+                lines[0] += " · Selected"
             for entry in self.by_day.get(day, ()):
                 text = f"{entry.time_label} · {entry.title} · {entry.subject or entry.type_label}"
                 lines.append(text + (" · Completed" if entry.completed else ""))
@@ -75,7 +79,9 @@ def chip_layout(rect: QRect, entries: list[Entry]) -> tuple[list[tuple[QRect, En
     room = rect.bottom() - y - 2
     if room < 15:
         return [], QRect(rect.right() - 28, rect.top() + 3, 25, 16)
-    height = 32 if room >= 32 and (len(entries) == 1 or room >= 50) else 18
+    desired = min(2, len(entries))
+    available = room - (17 if len(entries) > desired else 0)
+    height = 32 if available >= desired * 34 - 2 else 18
     count = min(2, len(entries), (room + 2) // (height + 2))
     if count < len(entries):
         count = max(0, min(count, (room - 15) // (height + 2)))
@@ -100,42 +106,48 @@ class DayDelegate(QStyledItemDelegate):
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         in_month = day and day.month == self.grid.selected.month
         if not in_month:
-            background = QColor(112, 135, 149, 12)
+            background = QColor(PAPER)
         elif index.column() >= 5:
-            background = QColor(154, 176, 182, 12)
+            background = QColor("#F7F5F2")
         else:
-            background = QColor(255, 255, 255, 35)
-        painter.fillRect(rect, QColor(145, 175, 183, 25) if hovered else background)
-        painter.setPen(QColor(87, 110, 122, 36))
+            background = QColor(FROST)
+        painter.fillRect(rect, QColor("#EFEBE7") if hovered else background)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setPen(QColor(RULE))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.drawLine(rect.topRight(), rect.bottomRight())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if not day:
             painter.restore()
             return
         if selected:
-            selected_wash = QColor("#C2DADB")
-            selected_wash.setAlphaF(.15 + .24 * self.grid.selectionStrength)
+            selected_wash = QColor(ACCENT)
+            selected_wash.setAlphaF(.035 + .025 * self.grid.selectionStrength)
             painter.setBrush(selected_wash)
-            painter.setPen(QPen(QColor(ACCENT if self.grid.hasFocus() else "#809EA5"), 2 if self.grid.hasFocus() else 1))
-            painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 6, 6)
+            painter.setPen(QPen(QColor(ACCENT), 1.6) if self.grid.hasFocus() else Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 5, 5)
 
         today = day == self.grid.today
         badge = QRect(rect.x() + 5, rect.y() + 3, 23, 20)
-        if today:
+        if selected:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(ACCENT))
             painter.drawRoundedRect(badge, 9, 9)
-        number_colour = "#FFFFFF" if today else (INK if in_month else "#657781")
+        number_colour = FROST if selected else (INK if in_month else MUTED)
         painter.setPen(QColor(number_colour))
         painter.setFont(font(14, QFont.Weight.DemiBold if today or selected else QFont.Weight.Normal))
         painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(day.day))
         entries = model.by_day.get(day, [])
         boxes, more = chip_layout(rect, entries)
         count_in_header = more is not None and more.top() < rect.y() + 21
-        if today and rect.width() >= (99 if count_in_header else 65):
-            painter.setFont(font(12, QFont.Weight.DemiBold))
-            painter.setPen(QColor(ACCENT))
-            painter.drawText(badge.translated(26, 0).adjusted(0, 0, 16, 0), Qt.AlignmentFlag.AlignVCenter, "Today")
+        if today:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(ACCENT))
+            painter.drawEllipse(badge.right() + 4, badge.center().y() - 2, 5, 5)
+            if rect.width() >= (108 if count_in_header else 77):
+                painter.setFont(font(11, QFont.Weight.Medium))
+                painter.setPen(QColor(ACCENT))
+                painter.drawText(badge.translated(36, 0).adjusted(0, 0, 10, 0), Qt.AlignmentFlag.AlignVCenter, "Today")
 
         for box, entry in boxes:
             self.paint_chip(painter, box, entry, model.colours.get(entry.subject, NEUTRAL_COLOUR))
@@ -149,28 +161,33 @@ class DayDelegate(QStyledItemDelegate):
 
     @staticmethod
     def paint_chip(painter, rect: QRect, entry: Entry, colour: str) -> None:
-        accent = QColor(colour)
-        tint = QColor(accent)
-        tint.setAlpha(16 if entry.completed else 27)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(tint)
+        painter.setBrush(QColor("#F4F2F0" if entry.completed else "#ECE9E5"))
         painter.drawRoundedRect(rect, 4, 4)
-        painter.setBrush(accent)
+        painter.setBrush(QColor(colour))
         painter.drawRoundedRect(QRect(rect.x() + 2, rect.y() + 3, 2, rect.height() - 6), 1, 1)
         text_box = rect.adjusted(8, 0, -3, 0)
         tall = rect.height() > 24
         title = ("✓ " if entry.completed else "") + entry.title
-        if not tall and entry.subject:
-            title += " · " + entry.subject
+        if not tall and entry.at:
+            # Keep enough width to recognise the title even in a six-week compact grid.
+            stamp = entry.at.strftime("%H:%M")
+            painter.setFont(font(11))
+            painter.setPen(QColor(MUTED))
+            stamp_width = painter.fontMetrics().horizontalAdvance(stamp)
+            if text_box.width() >= stamp_width + 14:
+                painter.drawText(text_box, Qt.AlignmentFlag.AlignVCenter, stamp)
+                text_box.adjust(stamp_width + 4, 0, 0, 0)
         painter.setFont(font(12, QFont.Weight.DemiBold))
         painter.setPen(QColor(MUTED if entry.completed else INK))
         first = QRect(text_box.x(), text_box.y(), text_box.width(), 17) if tall else text_box
         painter.drawText(first, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, first.width()))
         if tall:
-            painter.setFont(font(12))
+            painter.setFont(font(11))
             painter.setPen(QColor(MUTED))
             second = text_box.adjusted(0, 15, 0, -1)
-            text = painter.fontMetrics().elidedText(entry.subject or entry.type_label, Qt.TextElideMode.ElideRight, second.width())
+            meta = " · ".join(filter(None, (entry.at.strftime("%H:%M") if entry.at else "", entry.subject or entry.type_label)))
+            text = painter.fontMetrics().elidedText(meta, Qt.TextElideMode.ElideRight, second.width())
             painter.drawText(second, Qt.AlignmentFlag.AlignVCenter, text)
 
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 from bisect import bisect_right
 from datetime import date, time
 
-from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QAbstractButton, QApplication, QFrame, QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
-from .appearance import ACCENT, INK, MUTED, button, font, label
+from .appearance import ACCENT, FROST, INK, MIST, MUTED, PAPER, RULE, button, font, label, subject_icon
 from .model import Entry, NEUTRAL_COLOUR, full_day
 
 
@@ -78,17 +78,14 @@ class WeekEntry(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         e = self.entry
         point = e.at is not None and e.end_at is None
-        fill = QColor(self.colour)
-        fill.setAlpha(18 if e.completed else 42)
-        if self.underMouse():
-            fill.setAlpha(fill.alpha() + 18)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(fill)
+        fill = MIST if self.underMouse() else "#F4F2F0" if e.completed else "#ECE9E5"
+        p.setPen(QPen(QColor(RULE), 1))
+        p.setBrush(QColor(fill))
         height = self.height() if e.at is None else self.duration_height
         if not point:
-            box = QRectF(0, 0, self.width(), max(1, height))
+            box = QRectF(.5, .5, self.width() - 1, max(1, height - 1))
             p.drawRoundedRect(box, 4, min(4, height / 2))
-            p.fillRect(QRectF(0, 0, 2.5, box.height()), self.colour)
+            p.fillRect(QRectF(1, 1, 2.5, max(1, height - 2)), self.colour)
         else:
             # A hollow marker has an instant on the axis and no vertical duration.
             p.setPen(QPen(self.colour, 1.8))
@@ -139,11 +136,9 @@ class ScheduleSurface(QWidget):
         for i, day in enumerate(w.days):
             left, right = w.edges[i:i + 2]
             area = QRect(left, 0, right - left, self.height())
-            if day == w.today:
-                p.fillRect(area, QColor(92, 149, 153, 19))
-            elif i >= 5:
-                p.fillRect(area, QColor(124, 151, 169, 11))
-            p.setPen(QColor(82, 109, 122, 38))
+            shade = "#F7F1EF" if day == w.selected else PAPER if i >= 5 else FROST
+            p.fillRect(area, QColor(shade))
+            p.setPen(QColor(RULE))
             p.drawLine(left, 0, left, self.height())
         if self.header:
             p.drawLine(0, DAY_HEADER, self.width(), DAY_HEADER)
@@ -153,7 +148,7 @@ class ScheduleSurface(QWidget):
             y = w.y(hour * 60)
             if y < event.rect().top() - 10 or y > event.rect().bottom() + 10:
                 continue
-            p.setPen(QColor(82, 108, 119, 53))
+            p.setPen(QColor(RULE))
             p.drawLine(0, y, self.width(), y)
 
     def mouseReleaseEvent(self, event):
@@ -278,6 +273,9 @@ class WeekView(QWidget):
             heading.setEnabled(day is not None)
             if day:
                 heading.setAccessibleName(("Today · " if day == self.today else "") + full_day(day))
+                if day == self.today:
+                    heading.setIcon(subject_icon(ACCENT, 8))
+                    heading.setIconSize(QSize(8, 8))
                 heading.setToolTip(f"Add an entry for {heading.accessibleName()}")
                 heading.clicked.connect(lambda checked=False, d=day: self.add.emit(d, None))
             heading.setProperty("today", day == self.today)

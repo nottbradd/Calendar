@@ -5,15 +5,24 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QDir, QEasingCurve, QPropertyAnimation, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtCore import QByteArray, QDir, QEasingCurve, QPoint, QPropertyAnimation, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QFrame, QGraphicsDropShadowEffect, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication, QFrame, QGraphicsBlurEffect, QGraphicsDropShadowEffect, QGraphicsScene, QLabel, QPushButton, QWidget,
+)
+
+from .windows import transparency_allowed
 
 
-INK = "#20313B"
-MUTED = "#485C69"
-ACCENT = "#345E70"
+PAPER = "#F0EEEB"
+FROST = "#FCFAF8"
+MIST = "#E2DFDA"
+STONE = "#BEB9B3"
+RULE = "#D6D2CD"
+INK = "#26232A"
+MUTED = "#59535A"
+ACCENT = "#713138"
 ASSETS = Path(__file__).with_name("assets")
 PATHS = {
     "plus": "M12 5v14M5 12h14",
@@ -39,7 +48,7 @@ def font(size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
 
 
 @lru_cache(maxsize=80)
-def icon(name: str, colour: str = MUTED, size: int = 18) -> QIcon:
+def icon(name: str, colour: str = INK, size: int = 18) -> QIcon:
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">'
         f'<path d="{PATHS[name]}" fill="none" stroke="{colour}" stroke-width="1.7" '
@@ -58,6 +67,10 @@ def label(text: str, role: str = "") -> QLabel:
     item = QLabel(text)
     item.setTextFormat(Qt.TextFormat.PlainText)
     item.setProperty("role", role)
+    if role in ("month", "heading", "subheading"):
+        face = item.font()
+        face.setFamilies(["Manrope", *QApplication.font().families()])
+        item.setFont(face)
     return item
 
 
@@ -92,40 +105,111 @@ def button(text: str, role: str = "", glyph: str = "") -> QPushButton:
     item.setAutoDefault(False)
     item.setCursor(Qt.CursorShape.PointingHandCursor)
     if glyph:
-        item.setIcon(icon(glyph, "#FFFFFF" if role == "primary" else MUTED))
+        item.setIcon(icon(glyph, FROST if role == "primary" else INK))
     return item
 
 
-def glass_panel() -> QFrame:
-    panel = QFrame()
-    panel.setObjectName("glass")
-    shadow = QGraphicsDropShadowEffect(panel)
-    shadow.setColor(QColor(38, 51, 60, 24))
-    shadow.setBlurRadius(15)
-    shadow.setOffset(0, 3)
-    panel.setGraphicsEffect(shadow)
-    return panel
+def blur_backdrop(source: QPixmap, radius: int) -> QPixmap:
+    """Blur only the backing image. All foreground widgets paint at full resolution."""
+    if source.isNull():
+        return QPixmap()
+    size = source.deviceIndependentSize().toSize() / 2
+    small = source.scaled(size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    small.setDevicePixelRatio(1)
+    scene = QGraphicsScene()
+    item = scene.addPixmap(small)
+    effect = QGraphicsBlurEffect()
+    effect.setBlurRadius(radius / 2)
+    item.setGraphicsEffect(effect)
+    result = QPixmap(small.size())
+    result.fill(QColor(PAPER))
+    painter = QPainter(result)
+    bounds = QRectF(result.rect())
+    scene.render(painter, bounds, bounds)
+    painter.end()
+    return result
+
+
+@lru_cache(maxsize=1)
+def workspace_images() -> tuple[QPixmap, QPixmap]:
+    paper = QPixmap(str(ASSETS / "ambient-frost.png"))
+    return paper, blur_backdrop(paper, 26)
+
+
+def paint_glass(painter: QPainter, rect: QRectF, draw_backdrop=None, *, tint=135, radius=12):
+    edge = rect.adjusted(.5, .5, -.5, -.5)
+    shape = QPainterPath()
+    shape.addRoundedRect(edge, radius, radius)
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setClipPath(shape)
+    if draw_backdrop:
+        draw_backdrop(painter)
+    wash = QColor(FROST)
+    wash.setAlpha(tint if draw_backdrop else 255)
+    painter.fillPath(shape, wash)
+    painter.setPen(QPen(QColor(255, 254, 253, 225), 1))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPath(shape)
+    painter.restore()
+
+
+class GlassPanel(QFrame):
+    def __init__(self, workspace, *, tint):
+        super().__init__(workspace)
+        self.workspace, self.tint = workspace, tint
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setColor(QColor(49, 39, 38, 27))
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
+
+    def paintEvent(self, _event):
+        def backdrop(p):
+            p.save()
+            pos = self.mapTo(self.workspace, QPoint())
+            p.translate(-pos)
+            self.workspace.paint_paper(p, blurred=True)
+            p.restore()
+
+        p = QPainter(self)
+        paint_glass(p, QRectF(self.rect()), backdrop if self.workspace.glass else None, tint=self.tint)
 
 
 def paint_frost(widget: QWidget, native: bool) -> None:
     painter = QPainter(widget)
-    rect = QRectF(widget.rect())
-    wash = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    wash.setColorAt(0, QColor(209, 231, 233, 112 if native else 255))
-    wash.setColorAt(.50, QColor(233, 239, 244, 124 if native else 255))
-    wash.setColorAt(1, QColor(234, 218, 211, 111 if native else 255))
-    # Replace the backing pixels on every repaint so the tint does not build up.
+    wash = QColor(FROST)
+    wash.setAlpha(221 if native else 255)
     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-    painter.fillRect(rect, wash)
+    painter.fillRect(widget.rect(), wash)
 
 
 class Backdrop(QWidget):
     def __init__(self, native: bool):
         super().__init__()
         self.native = native
+        self.glass = transparency_allowed() and not workspace_images()[1].isNull()
+
+    def paint_paper(self, painter, *, blurred=False):
+        bounds = QRectF(self.rect())
+        paper = QColor(PAPER)
+        paper.setAlpha(225 if self.native and self.glass and not blurred else 255)
+        painter.fillRect(bounds, paper)
+        if not self.glass:
+            return
+        texture = workspace_images()[int(blurred)]
+        scale = max(bounds.width() / texture.width(), bounds.height() / texture.height())
+        width, height = bounds.width() / scale, bounds.height() / scale
+        crop = QRectF((texture.width() - width) / 2, (texture.height() - height) / 2, width, height)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(.8)
+        painter.drawPixmap(bounds, texture, crop)
+        painter.restore()
 
     def paintEvent(self, _event) -> None:
-        paint_frost(self, self.native)
+        painter = QPainter(self)
+        self.paint_paper(painter)
 
 
 def motion_enabled() -> bool:
@@ -157,11 +241,27 @@ def animate_property(owner, target, name: bytes, start: float, end: float) -> No
 def apply_theme(app: QApplication) -> None:
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyle("Fusion")
-    font_id = QFontDatabase.addApplicationFont(str(ASSETS / "fonts" / "SourceSans3VF-Upright.ttf"))
-    families = QFontDatabase.applicationFontFamilies(font_id)
-    base = QFont(families[0] if families else "Segoe UI Variable Text")
+    for filename in ("Geist-Variable.ttf", "Manrope-Variable.ttf", "SourceSans3VF-Upright.ttf"):
+        QFontDatabase.addApplicationFont(str(ASSETS / "fonts" / filename))
+    base = QFont()
+    base.setFamilies(["Geist", "Source Sans 3", "Segoe UI"])
     base.setPixelSize(14)
+    base.setStyleStrategy(QFont.StyleStrategy.PreferAntialias | QFont.StyleStrategy.NoSubpixelAntialias)
+    base.setHintingPreference(QFont.HintingPreference.PreferVerticalHinting)
+    base.setFeature(QFont.Tag("tnum"), 1)
     app.setFont(base)
+    palette = app.palette()
+    role = QPalette.ColorRole
+    for key, colour in {
+        role.Window: PAPER, role.Base: FROST, role.AlternateBase: PAPER, role.Button: FROST,
+        role.WindowText: INK, role.Text: INK, role.ButtonText: INK, role.PlaceholderText: MUTED,
+        role.Highlight: ACCENT, role.HighlightedText: FROST, role.Accent: ACCENT,
+        role.Link: ACCENT, role.Light: FROST, role.Midlight: MIST, role.Mid: STONE, role.Dark: MUTED,
+    }.items():
+        palette.setColor(key, QColor(colour))
+    for key in (role.WindowText, role.Text, role.ButtonText):
+        palette.setColor(QPalette.ColorGroup.Disabled, key, QColor("#716B6D"))
+    app.setPalette(palette)
     QDir.setSearchPaths("planner", [str(ASSETS)])
     app.setWindowIcon(QIcon(str(ASSETS / "calendar.svg")))
     app.setStyleSheet((ASSETS / "theme.qss").read_text(encoding="utf-8"))

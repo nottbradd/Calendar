@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QEvent, Qt, QTimer, QVariantAnimation
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QButtonGroup, QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout
 
 from . import APP_NAME
 from .assistant_ui import AssistantPanel, AssistantSettings
 from .agenda import EntryList
-from .appearance import Backdrop, button, glass_panel, label, motion_enabled
+from .appearance import Backdrop, GlassPanel, button, label
 from .dialogs import DayDetails, EntryDetails, EntryEditor
 from .model import Entry, NEUTRAL_COLOUR, shift_month
 from .month_view import MonthView
@@ -39,9 +39,10 @@ class CalendarWindow(QMainWindow):
         background = Backdrop(enable_system_frost(self))
         self.setCentralWidget(background)
         outer = QVBoxLayout(background)
-        outer.setContentsMargins(16, 10, 16, 13)
+        outer.setContentsMargins(12, 9, 12, 11)
         outer.setSpacing(9)
-        outer.addLayout(self._toolbar())
+        self.toolbar = self._toolbar()
+        outer.addWidget(self.toolbar)
 
         self.read_error = label("", "error")
         self.read_error.setWordWrap(True)
@@ -74,7 +75,9 @@ class CalendarWindow(QMainWindow):
         self.day_timer.start(30_000)
 
     def _toolbar(self):
-        top = QHBoxLayout()
+        panel = GlassPanel(self.centralWidget(), tint=112)
+        top = QHBoxLayout(panel)
+        top.setContentsMargins(13, 6, 7, 6)
         top.setSpacing(5)
         self.month_label = label("", "month")
         top.addWidget(self.month_label)
@@ -123,12 +126,13 @@ class CalendarWindow(QMainWindow):
         self.add_button.setToolTip("Add an entry for the selected day (Ctrl+N)")
         self.add_button.clicked.connect(lambda: self.open_editor(self.selected))
         top.addWidget(self.add_button)
-        return top
+        return panel
 
     def _calendar_panel(self):
-        panel = glass_panel()
+        panel = QFrame()
+        panel.setObjectName("calendarPanel")
         body = QVBoxLayout(panel)
-        body.setContentsMargins(8, 5, 8, 5)
+        body.setContentsMargins(7, 3, 7, 4)
         body.setSpacing(3)
         self.grid = MonthView(self.selected)
         self.grid.choose.connect(self.select)
@@ -161,11 +165,11 @@ class CalendarWindow(QMainWindow):
         return panel
 
     def _agenda_panel(self):
-        panel = glass_panel()
+        panel = GlassPanel(self.centralWidget(), tint=106)
         panel.setMinimumWidth(234)
         panel.setMaximumWidth(420)
         body = QVBoxLayout(panel)
-        body.setContentsMargins(12, 7, 10, 9)
+        body.setContentsMargins(12, 10, 10, 9)
         body.setSpacing(5)
         row = QHBoxLayout()
         row.setSpacing(5)
@@ -189,10 +193,6 @@ class CalendarWindow(QMainWindow):
         self.agenda.setAccessibleName("Agenda entries")
         self.agenda.open_entry.connect(self.open_details)
         body.addWidget(self.agenda, 1)
-        self.count_pulse = QVariantAnimation(self, duration=160)
-        self.count_pulse.setStartValue(QColor(157, 189, 196, 150))
-        self.count_pulse.setEndValue(QColor(180, 201, 207, 68))
-        self.count_pulse.valueChanged.connect(lambda c: self.count.setStyleSheet(f"background:rgba{c.getRgb()};"))
         return panel
 
     def select(self, day):
@@ -224,11 +224,12 @@ class CalendarWindow(QMainWindow):
         self.settings_button.setText("" if compact else "Settings")
         day = self.today
         self.today_text.setText(f"{day:%a}, {day.day} {day:%b}" if compact else f"{day:%A}, {day.day} {day:%B}")
+        self.today_text.setVisible(self.width() >= 860)
         if hasattr(self, "agenda_panel"):
-            compact_week = self.width() < 1000 and self.snapshot.view == "week"
-            self.agenda_toggle.setVisible(compact_week)
+            compact_agenda = self.width() < (1000 if self.snapshot.view == "week" else 800)
+            self.agenda_toggle.setVisible(compact_agenda)
             self.agenda_toggle.setText("Hide agenda" if self.compact_agenda_open else "Show agenda")
-            self.agenda_panel.setVisible(not compact_week or self.compact_agenda_open)
+            self.agenda_panel.setVisible(not compact_agenda or self.compact_agenda_open)
 
     def toggle_compact_agenda(self):
         self.compact_agenda_open = not self.compact_agenda_open
@@ -303,6 +304,8 @@ class CalendarWindow(QMainWindow):
             self.snapshot = current
             self.select(self.selected)
             self.render_agenda()
+            if self.dialog:
+                self.dialog.refresh_timer.start(0)
         self.sync_control.local_change()
 
     def _sync_status(self):
@@ -354,13 +357,7 @@ class CalendarWindow(QMainWindow):
         self.select(entry.day)
         details = EntryDetails(self, self.store, entry, self.snapshot.colours.get(entry.subject, NEUTRAL_COLOUR), self.today)
         details.edit.connect(lambda item: self.open_editor(item.day, item))
-        details.changed.connect(self._entry_changed)
         self._present(details)
-
-    def _entry_changed(self):
-        if motion_enabled():
-            self.count_pulse.stop()
-            self.count_pulse.start()
 
     def open_day(self, day):
         self.select(day)
